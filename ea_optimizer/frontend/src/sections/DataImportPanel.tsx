@@ -25,6 +25,8 @@ interface ImportStatus {
   error?: string;
 }
 
+const IMPORT_TIMEOUT_MS = 90000;
+
 export default function DataImportPanel() {
   const [marketFile, setMarketFile] = useState<File | null>(null);
   const [tradesFile, setTradesFile] = useState<File | null>(null);
@@ -50,12 +52,27 @@ export default function DataImportPanel() {
     type: 'market' | 'trades'
   ) => {
     const file = event.target.files?.[0] || null;
+    setImportStatus({ type: null, status: 'idle', message: '' });
     if (type === 'market') {
       setMarketFile(file);
       if (file) setMarketPath('');
     } else {
       setTradesFile(file);
       if (file) setTradesPath('');
+    }
+  };
+
+  const fetchWithTimeout = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), IMPORT_TIMEOUT_MS);
+
+    try {
+      return await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   };
 
@@ -81,12 +98,12 @@ export default function DataImportPanel() {
             const formData = new FormData();
             formData.append('file', marketFile);
             formData.append('symbol', 'XAUUSD');
-            return fetch(apiUrl('/api/import/market-data'), {
+            return fetchWithTimeout(apiUrl('/api/import/market-data'), {
               method: 'POST',
               body: formData
             });
           })()
-        : await fetch(apiUrl('/api/import/market-data'), {
+        : await fetchWithTimeout(apiUrl('/api/import/market-data'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -114,10 +131,14 @@ export default function DataImportPanel() {
         });
       }
     } catch (e) {
+      const message =
+        e instanceof DOMException && e.name === 'AbortError'
+          ? 'Import timed out. Please try a smaller file or retry in a moment.'
+          : 'Network error. Is the backend running?';
       setImportStatus({
         type: 'market',
         status: 'error',
-        message: 'Network error. Is the backend running?'
+        message
       });
     }
   };
@@ -144,12 +165,12 @@ export default function DataImportPanel() {
             const formData = new FormData();
             formData.append('file', tradesFile);
             formData.append('symbol', 'XAUUSD');
-            return fetch(apiUrl('/api/import/trades'), {
+            return fetchWithTimeout(apiUrl('/api/import/trades'), {
               method: 'POST',
               body: formData
             });
           })()
-        : await fetch(apiUrl('/api/import/trades'), {
+        : await fetchWithTimeout(apiUrl('/api/import/trades'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -177,10 +198,14 @@ export default function DataImportPanel() {
         });
       }
     } catch (e) {
+      const message =
+        e instanceof DOMException && e.name === 'AbortError'
+          ? 'Import timed out. Please try a smaller file or retry in a moment.'
+          : 'Network error. Is the backend running?';
       setImportStatus({
         type: 'trades',
         status: 'error',
-        message: 'Network error. Is the backend running?'
+        message
       });
     }
   };
@@ -432,6 +457,30 @@ export default function DataImportPanel() {
                 and other tabs to analyze your EA performance.
               </p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-slate-900 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-lg text-white">Direct MT5 Sync</CardTitle>
+          <CardDescription className="text-slate-300">
+            Use the desktop bridge on the same Windows machine where MetaTrader 5 is open.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3 text-sm text-slate-300">
+            <p>
+              This cloud app cannot access your local MT5 terminal directly. To avoid CSV exports,
+              run the local sync script from the project folder on your Windows desktop.
+            </p>
+            <code className="block rounded-lg bg-slate-950 px-3 py-3 text-xs text-slate-200">
+              python sync_mt5_to_cloud.py --api-url https://eaoptimizer.onrender.com --symbol XAUUSD --days 30
+            </code>
+            <p className="text-slate-400">
+              Keep MT5 open and logged in while the command runs. The script will fetch market data
+              and trades locally, then upload them to the hosted backend.
+            </p>
           </div>
         </CardContent>
       </Card>

@@ -23,7 +23,7 @@ import { apiUrl } from '@/lib/api';
 import './App.css';
 
 interface SystemStatus {
-  backend: boolean;
+  backend: 'checking' | 'online' | 'offline';
   database: boolean;
   marketData: boolean;
   trades: boolean;
@@ -31,7 +31,7 @@ interface SystemStatus {
 
 function App() {
   const [status, setStatus] = useState<SystemStatus>({
-    backend: false,
+    backend: 'checking',
     database: false,
     marketData: false,
     trades: false
@@ -39,18 +39,23 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
-    // Check system status
     checkSystemStatus();
+    const retryId = window.setTimeout(checkSystemStatus, 4000);
+    return () => window.clearTimeout(retryId);
   }, []);
 
   const checkSystemStatus = async () => {
     try {
-      const response = await fetch(apiUrl('/api/health'));
+      setStatus(prev => ({ ...prev, backend: 'checking' }));
+      const response = await fetch(apiUrl('/api/health'), { cache: 'no-store' });
       if (response.ok) {
-        setStatus(prev => ({ ...prev, backend: true }));
+        setStatus(prev => ({ ...prev, backend: 'online' }));
+        return;
       }
+      setStatus(prev => ({ ...prev, backend: 'offline' }));
     } catch (e) {
-      console.log('Backend not available');
+      console.log('Backend not available', e);
+      setStatus(prev => ({ ...prev, backend: 'offline' }));
     }
   };
 
@@ -76,9 +81,26 @@ function App() {
             
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <Badge variant={status.backend ? 'default' : 'destructive'} className="gap-1">
-                  {status.backend ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                  Backend
+                <Badge
+                  variant={
+                    status.backend === 'online'
+                      ? 'default'
+                      : status.backend === 'checking'
+                        ? 'secondary'
+                        : 'destructive'
+                  }
+                  className="gap-1"
+                >
+                  {status.backend === 'online' ? (
+                    <CheckCircle className="w-3 h-3" />
+                  ) : (
+                    <AlertTriangle className="w-3 h-3" />
+                  )}
+                  {status.backend === 'online'
+                    ? 'Backend Online'
+                    : status.backend === 'checking'
+                      ? 'Checking Backend'
+                      : 'Backend Offline'}
                 </Badge>
               </div>
             </div>
@@ -89,28 +111,28 @@ function App() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid grid-cols-6 gap-4 bg-slate-900/50 p-1">
-            <TabsTrigger value="dashboard" className="gap-2">
+          <TabsList className="ea-tabs-list grid grid-cols-6 gap-3 p-1.5">
+            <TabsTrigger value="dashboard" className="ea-tabs-trigger gap-2">
               <BarChart3 className="w-4 h-4" />
               Dashboard
             </TabsTrigger>
-            <TabsTrigger value="regime" className="gap-2">
+            <TabsTrigger value="regime" className="ea-tabs-trigger gap-2">
               <TrendingUp className="w-4 h-4" />
               Regime Detection
             </TabsTrigger>
-            <TabsTrigger value="survival" className="gap-2">
+            <TabsTrigger value="survival" className="ea-tabs-trigger gap-2">
               <Activity className="w-4 h-4" />
               Survival Analysis
             </TabsTrigger>
-            <TabsTrigger value="robustness" className="gap-2">
+            <TabsTrigger value="robustness" className="ea-tabs-trigger gap-2">
               <Shield className="w-4 h-4" />
               Robustness
             </TabsTrigger>
-            <TabsTrigger value="optimization" className="gap-2">
+            <TabsTrigger value="optimization" className="ea-tabs-trigger gap-2">
               <Settings className="w-4 h-4" />
               Optimization
             </TabsTrigger>
-            <TabsTrigger value="data" className="gap-2">
+            <TabsTrigger value="data" className="ea-tabs-trigger gap-2">
               <Database className="w-4 h-4" />
               Data Import
             </TabsTrigger>

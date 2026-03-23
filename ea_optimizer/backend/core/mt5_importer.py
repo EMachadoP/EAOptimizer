@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 import sqlite3
 import json
+import hashlib
 
 @dataclass
 class MT5Config:
@@ -305,9 +306,64 @@ class MT5DataImporter:
         """Salva trades no banco"""
         if self.connection is None:
             self.connect()
-        
-        df.to_sql('trades', self.connection, if_exists='append', index=False)
-        print(f"Salvos {len(df)} trades")
+
+        trades_df = df.copy()
+        trades_df.columns = [col.lower().strip() for col in trades_df.columns]
+
+        if 'time_open' in trades_df.columns and 'timestamp_open' not in trades_df.columns:
+            trades_df['timestamp_open'] = pd.to_datetime(trades_df['time_open'])
+        if 'time_close' in trades_df.columns and 'timestamp_close' not in trades_df.columns:
+            trades_df['timestamp_close'] = pd.to_datetime(trades_df['time_close'])
+
+        if 'type' in trades_df.columns and 'direction' not in trades_df.columns:
+            trades_df['direction'] = trades_df['type'].apply(
+                lambda value: 'BUY' if str(value).lower() in {'0', 'buy'} else 'SELL'
+            )
+
+        if 'slippage' in trades_df.columns and 'slippage_pips' not in trades_df.columns:
+            trades_df['slippage_pips'] = trades_df['slippage']
+
+        if 'ticket' in trades_df.columns and 'basket_id' not in trades_df.columns:
+            trades_df['basket_id'] = trades_df['ticket'].astype(str).apply(
+                lambda ticket: hashlib.md5(ticket.encode()).hexdigest()[:32]
+            )
+
+        if 'symbol' not in trades_df.columns:
+            trades_df['symbol'] = 'XAUUSD'
+
+        if 'commission' not in trades_df.columns:
+            trades_df['commission'] = 0.0
+        if 'swap' not in trades_df.columns:
+            trades_df['swap'] = 0.0
+        if 'price_close' not in trades_df.columns:
+            trades_df['price_close'] = trades_df.get('price_open')
+        if 'timestamp_close' not in trades_df.columns:
+            trades_df['timestamp_close'] = trades_df.get('timestamp_open')
+        if 'slippage_pips' not in trades_df.columns:
+            trades_df['slippage_pips'] = 0.0
+
+        required_columns = [
+            'basket_id',
+            'timestamp_open',
+            'timestamp_close',
+            'symbol',
+            'direction',
+            'volume',
+            'price_open',
+            'price_close',
+            'slippage_pips',
+            'commission',
+            'swap',
+            'profit',
+        ]
+
+        for column in required_columns:
+            if column not in trades_df.columns:
+                raise ValueError(f"Coluna obrigatória ausente para salvar trades: {column}")
+
+        trades_df = trades_df[required_columns]
+        trades_df.to_sql('trades', self.connection, if_exists='append', index=False)
+        print(f"Salvos {len(trades_df)} trades")
     
     def _extract_metrics_from_html(self, soup) -> Dict:
         """Extrai métricas do relatório HTML"""

@@ -13,6 +13,7 @@ import sys
 import os
 from datetime import datetime, timedelta
 import json
+import tempfile
 from sqlalchemy import text
 
 # Adicionar parent ao path
@@ -60,6 +61,13 @@ engine = init_database(DB_PATH)
 market_data_cache = {}
 optimization_results_cache = None
 
+
+def _persist_uploaded_file(uploaded_file):
+    suffix = os.path.splitext(uploaded_file.filename or "")[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        uploaded_file.save(tmp.name)
+        return tmp.name
+
 # =============================================================================
 # Health Check
 # =============================================================================
@@ -80,10 +88,19 @@ def health_check():
 @app.route('/api/import/market-data', methods=['POST'])
 def import_market_data():
     """Importa dados de mercado de CSV"""
+    temp_path = None
     try:
-        data = request.json
-        csv_path = data.get('csv_path')
-        symbol = data.get('symbol', 'XAUUSD')
+        if 'file' in request.files:
+            uploaded_file = request.files['file']
+            symbol = request.form.get('symbol', 'XAUUSD')
+            if not uploaded_file or not uploaded_file.filename:
+                return jsonify({'error': 'Arquivo é obrigatório'}), 400
+            temp_path = _persist_uploaded_file(uploaded_file)
+            csv_path = temp_path
+        else:
+            data = request.get_json(silent=True) or {}
+            csv_path = data.get('csv_path')
+            symbol = data.get('symbol', 'XAUUSD')
         
         if not csv_path:
             return jsonify({'error': 'csv_path é obrigatório'}), 400
@@ -103,20 +120,38 @@ def import_market_data():
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @app.route('/api/import/trades', methods=['POST'])
 def import_trades():
     """Importa trades de CSV"""
+    temp_path = None
     try:
-        data = request.json
-        csv_path = data.get('csv_path')
-        symbol = data.get('symbol', 'XAUUSD')
+        if 'file' in request.files:
+            uploaded_file = request.files['file']
+            symbol = request.form.get('symbol', 'XAUUSD')
+            if not uploaded_file or not uploaded_file.filename:
+                return jsonify({'error': 'Arquivo é obrigatório'}), 400
+            temp_path = _persist_uploaded_file(uploaded_file)
+            csv_path = temp_path
+            original_name = (uploaded_file.filename or '').lower()
+        else:
+            data = request.get_json(silent=True) or {}
+            csv_path = data.get('csv_path')
+            symbol = data.get('symbol', 'XAUUSD')
+            original_name = str(csv_path or '').lower()
         
         if not csv_path:
             return jsonify({'error': 'csv_path é obrigatório'}), 400
         
         importer = MT5DataImporter(DB_PATH)
-        df = importer.import_trades_from_csv(csv_path, symbol)
+        if original_name.endswith(('.html', '.htm')):
+            result = importer.import_mt5_report(csv_path, symbol)
+            df = result['trades']
+        else:
+            df = importer.import_trades_from_csv(csv_path, symbol)
         importer.disconnect()
         
         return jsonify({
@@ -127,6 +162,9 @@ def import_trades():
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 # =============================================================================
 # Regime Detection Endpoints

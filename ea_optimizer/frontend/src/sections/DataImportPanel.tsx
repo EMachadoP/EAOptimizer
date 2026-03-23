@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +26,8 @@ interface ImportStatus {
 }
 
 export default function DataImportPanel() {
+  const [marketFile, setMarketFile] = useState<File | null>(null);
+  const [tradesFile, setTradesFile] = useState<File | null>(null);
   const [marketPath, setMarketPath] = useState('');
   const [tradesPath, setTradesPath] = useState('');
   const [importStatus, setImportStatus] = useState<ImportStatus>({
@@ -33,12 +36,35 @@ export default function DataImportPanel() {
     message: ''
   });
 
+  const marketSourceLabel = useMemo(
+    () => marketFile?.name || marketPath || 'No market file selected',
+    [marketFile, marketPath]
+  );
+  const tradesSourceLabel = useMemo(
+    () => tradesFile?.name || tradesPath || 'No trade file selected',
+    [tradesFile, tradesPath]
+  );
+
+  const updateSelectedFile = (
+    event: ChangeEvent<HTMLInputElement>,
+    type: 'market' | 'trades'
+  ) => {
+    const file = event.target.files?.[0] || null;
+    if (type === 'market') {
+      setMarketFile(file);
+      if (file) setMarketPath('');
+    } else {
+      setTradesFile(file);
+      if (file) setTradesPath('');
+    }
+  };
+
   const handleMarketImport = async () => {
-    if (!marketPath) {
+    if (!marketFile && !marketPath) {
       setImportStatus({
         type: 'market',
         status: 'error',
-        message: 'Please provide a file path'
+        message: 'Choose a CSV file or provide a server file path'
       });
       return;
     }
@@ -50,14 +76,24 @@ export default function DataImportPanel() {
     });
 
     try {
-      const res = await fetch(apiUrl('/api/import/market-data'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          csv_path: marketPath,
-          symbol: 'XAUUSD'
-        })
-      });
+      const res = marketFile
+        ? await (() => {
+            const formData = new FormData();
+            formData.append('file', marketFile);
+            formData.append('symbol', 'XAUUSD');
+            return fetch(apiUrl('/api/import/market-data'), {
+              method: 'POST',
+              body: formData
+            });
+          })()
+        : await fetch(apiUrl('/api/import/market-data'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              csv_path: marketPath,
+              symbol: 'XAUUSD'
+            })
+          });
 
       if (res.ok) {
         const data = await res.json();
@@ -67,6 +103,8 @@ export default function DataImportPanel() {
           message: `Successfully imported ${data.records_imported} market data records`,
           records: data.records_imported
         });
+        setMarketFile(null);
+        setMarketPath('');
       } else {
         const error = await res.json();
         setImportStatus({
@@ -85,11 +123,11 @@ export default function DataImportPanel() {
   };
 
   const handleTradesImport = async () => {
-    if (!tradesPath) {
+    if (!tradesFile && !tradesPath) {
       setImportStatus({
         type: 'trades',
         status: 'error',
-        message: 'Please provide a file path'
+        message: 'Choose a CSV/HTML file or provide a server file path'
       });
       return;
     }
@@ -101,14 +139,24 @@ export default function DataImportPanel() {
     });
 
     try {
-      const res = await fetch(apiUrl('/api/import/trades'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          csv_path: tradesPath,
-          symbol: 'XAUUSD'
-        })
-      });
+      const res = tradesFile
+        ? await (() => {
+            const formData = new FormData();
+            formData.append('file', tradesFile);
+            formData.append('symbol', 'XAUUSD');
+            return fetch(apiUrl('/api/import/trades'), {
+              method: 'POST',
+              body: formData
+            });
+          })()
+        : await fetch(apiUrl('/api/import/trades'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              csv_path: tradesPath,
+              symbol: 'XAUUSD'
+            })
+          });
 
       if (res.ok) {
         const data = await res.json();
@@ -118,6 +166,8 @@ export default function DataImportPanel() {
           message: `Successfully imported ${data.records_imported} trades`,
           records: data.records_imported
         });
+        setTradesFile(null);
+        setTradesPath('');
       } else {
         const error = await res.json();
         setImportStatus({
@@ -168,11 +218,11 @@ export default function DataImportPanel() {
       {/* Market Data Import */}
       <Card className="bg-slate-900 border-slate-800">
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
+          <CardTitle className="text-lg text-white flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-blue-500" />
             Market Data Import
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-slate-300">
             Import OHLCV data from MT5 (CSV format)
           </CardDescription>
         </CardHeader>
@@ -186,13 +236,39 @@ export default function DataImportPanel() {
               </code>
             </div>
 
+            <div className="rounded-xl border border-slate-700 bg-slate-800/70 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Choose market CSV</p>
+                  <p className="text-xs text-slate-400">Upload directly from your computer to the backend</p>
+                </div>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-100 hover:bg-blue-500/20">
+                  <FolderOpen className="w-4 h-4" />
+                  Browse File
+                  <Input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    onChange={(event) => updateSelectedFile(event, 'market')}
+                  />
+                </label>
+              </div>
+              <p className="mt-3 rounded-lg bg-slate-950/70 px-3 py-2 text-sm text-slate-300">
+                {marketSourceLabel}
+              </p>
+            </div>
+
             <div className="flex gap-2">
-              <div className="flex-1">
+              <div className="flex-1 space-y-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Optional server path</p>
                 <Input
-                  placeholder="/path/to/XAUUSD_H1.csv"
+                  placeholder="/var/data/XAUUSD_H1.csv"
                   value={marketPath}
-                  onChange={(e) => setMarketPath(e.target.value)}
-                  className="bg-slate-800 border-slate-700"
+                  onChange={(e) => {
+                    setMarketPath(e.target.value);
+                    if (e.target.value) setMarketFile(null);
+                  }}
+                  className="bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
                 />
               </div>
               <Button 
@@ -205,9 +281,9 @@ export default function DataImportPanel() {
               </Button>
             </div>
 
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-slate-400">
               <FolderOpen className="w-4 h-4" />
-              <span>Or place CSV files in the /data directory</span>
+              <span>You can upload a local file or use a path that already exists on the server.</span>
             </div>
           </div>
         </CardContent>
@@ -216,11 +292,11 @@ export default function DataImportPanel() {
       {/* Trades Import */}
       <Card className="bg-slate-900 border-slate-800">
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
+          <CardTitle className="text-lg text-white flex items-center gap-2">
             <Activity className="w-5 h-5 text-green-500" />
             Trade History Import
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-slate-300">
             Import EA trade history from MT5 (CSV or HTML report)
           </CardDescription>
         </CardHeader>
@@ -234,13 +310,39 @@ export default function DataImportPanel() {
               </code>
             </div>
 
+            <div className="rounded-xl border border-slate-700 bg-slate-800/70 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Choose trade file</p>
+                  <p className="text-xs text-slate-400">Supports MT5 CSV exports and Strategy Tester HTML reports</p>
+                </div>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/10 px-4 py-2 text-sm font-medium text-green-100 hover:bg-green-500/20">
+                  <FileText className="w-4 h-4" />
+                  Browse File
+                  <Input
+                    type="file"
+                    accept=".csv,.html,.htm,text/csv,text/html"
+                    className="hidden"
+                    onChange={(event) => updateSelectedFile(event, 'trades')}
+                  />
+                </label>
+              </div>
+              <p className="mt-3 rounded-lg bg-slate-950/70 px-3 py-2 text-sm text-slate-300">
+                {tradesSourceLabel}
+              </p>
+            </div>
+
             <div className="flex gap-2">
-              <div className="flex-1">
+              <div className="flex-1 space-y-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Optional server path</p>
                 <Input
-                  placeholder="/path/to/trades.csv"
+                  placeholder="/var/data/trades.csv"
                   value={tradesPath}
-                  onChange={(e) => setTradesPath(e.target.value)}
-                  className="bg-slate-800 border-slate-700"
+                  onChange={(e) => {
+                    setTradesPath(e.target.value);
+                    if (e.target.value) setTradesFile(null);
+                  }}
+                  className="bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
                 />
               </div>
               <Button 
@@ -253,7 +355,7 @@ export default function DataImportPanel() {
               </Button>
             </div>
 
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-slate-400">
               <FileText className="w-4 h-4" />
               <span>Also supports MT5 Strategy Tester HTML reports</span>
             </div>
@@ -264,7 +366,7 @@ export default function DataImportPanel() {
       {/* Database Status */}
       <Card className="bg-slate-900 border-slate-800">
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
+          <CardTitle className="text-lg text-white flex items-center gap-2">
             <Database className="w-5 h-5 text-purple-500" />
             Database Status
           </CardTitle>
@@ -298,7 +400,7 @@ export default function DataImportPanel() {
       {/* Instructions */}
       <Card className="bg-slate-900 border-slate-800">
         <CardHeader>
-          <CardTitle className="text-lg">Import Instructions</CardTitle>
+          <CardTitle className="text-lg text-white">Import Instructions</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4 text-sm text-slate-400">
@@ -320,7 +422,7 @@ export default function DataImportPanel() {
               <Badge variant="outline" className="shrink-0">3</Badge>
               <p>
                 <strong className="text-white">Import:</strong> Provide the full file path and click 
-                Import. Data will be validated and stored in the SQLite database.
+                Import, or use the Browse button to upload the file directly from your computer.
               </p>
             </div>
             <div className="flex gap-3">

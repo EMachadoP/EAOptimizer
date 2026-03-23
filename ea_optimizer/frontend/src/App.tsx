@@ -18,6 +18,7 @@ import SurvivalAnalysisPanel from './sections/SurvivalAnalysisPanel';
 import RobustnessMappingPanel from './sections/RobustnessMappingPanel';
 import OptimizationPanel from './sections/OptimizationPanel';
 import DataImportPanel from './sections/DataImportPanel';
+import { apiUrl } from '@/lib/api';
 
 import './App.css';
 
@@ -44,7 +45,7 @@ function App() {
 
   const checkSystemStatus = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/health');
+      const response = await fetch(apiUrl('/api/health'));
       if (response.ok) {
         setStatus(prev => ({ ...prev, backend: true }));
       }

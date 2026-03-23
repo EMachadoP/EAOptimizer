@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { apiUrl } from '@/lib/api';
 import { 
   XAxis, 
   YAxis, 
@@ -60,7 +61,7 @@ export default function RegimeAnalysisPanel() {
     setLoading(true);
     try {
       // Fetch regime analysis
-      const regimeRes = await fetch('http://localhost:5000/api/regime/analyze', {
+      const regimeRes = await fetch(apiUrl('/api/regime/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: selectedSymbol })
@@ -79,7 +80,7 @@ export default function RegimeAnalysisPanel() {
         );
         
         // Fetch profit matrix
-        const matrixRes = await fetch(`http://localhost:5000/api/regime/profit-matrix?symbol=${selectedSymbol}`);
+        const matrixRes = await fetch(apiUrl(`/api/regime/profit-matrix?symbol=${selectedSymbol}`));
         if (matrixRes.ok) {
           const matrixResult = await matrixRes.json();
           setProfitMatrix(matrixResult.profit_matrix || []);

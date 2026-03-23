@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { apiUrl } from '@/lib/api';
 import { 
   Upload, 
   Database, 
@@ -49,7 +50,7 @@ export default function DataImportPanel() {
     });
 
     try {
-      const res = await fetch('http://localhost:5000/api/import/market-data', {
+      const res = await fetch(apiUrl('/api/import/market-data'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -100,7 +101,7 @@ export default function DataImportPanel() {
     });
 
     try {
-      const res = await fetch('http://localhost:5000/api/import/trades', {
+      const res = await fetch(apiUrl('/api/import/trades'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

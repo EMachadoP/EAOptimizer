@@ -16,6 +16,7 @@ import {
   ReferenceLine
 } from 'recharts';
 import { Shield, AlertTriangle, CheckCircle, Target, RefreshCw, TrendingUp } from 'lucide-react';
+import { apiUrl } from '@/lib/api';
 
 interface RobustZone {
   cluster_id: number;
@@ -82,7 +83,7 @@ export default function RobustnessMappingPanel() {
   const fetchRobustnessAnalysis = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/robustness/analyze', {
+      const res = await fetch(apiUrl('/api/robustness/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -94,7 +95,7 @@ export default function RobustnessMappingPanel() {
       }
 
       // Fetch surface data
-      const surfaceRes = await fetch('http://localhost:5000/api/robustness/surface-data');
+      const surfaceRes = await fetch(apiUrl('/api/robustness/surface-data'));
       if (surfaceRes.ok) {
         const surfaceResult = await surfaceRes.json();
         setSurfaceData(surfaceResult.surface_data || []);

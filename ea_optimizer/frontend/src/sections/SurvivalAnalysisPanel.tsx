@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { apiUrl } from '@/lib/api';
 import { 
   XAxis, 
   YAxis, 
@@ -54,7 +55,7 @@ export default function SurvivalAnalysisPanel() {
   const fetchSurvivalAnalysis = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/survival/analyze', {
+      const res = await fetch(apiUrl('/api/survival/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

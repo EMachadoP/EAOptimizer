@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { apiUrl } from '@/lib/api';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -45,14 +46,14 @@ export default function DashboardSummary() {
   const fetchDashboardData = async () => {
     try {
       // Fetch summary
-      const summaryRes = await fetch('http://localhost:5000/api/dashboard/summary');
+      const summaryRes = await fetch(apiUrl('/api/dashboard/summary'));
       if (summaryRes.ok) {
         const summaryData = await summaryRes.json();
         setStats(summaryData);
       }
 
       // Fetch regime
-      const regimeRes = await fetch('http://localhost:5000/api/regime/analyze', {
+      const regimeRes = await fetch(apiUrl('/api/regime/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: 'XAUUSD' })

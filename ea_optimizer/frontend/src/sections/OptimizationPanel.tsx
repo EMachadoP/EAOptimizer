@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { apiUrl } from '@/lib/api';
 import { 
   BarChart,
   CartesianGrid,
@@ -77,7 +78,7 @@ export default function OptimizationPanel() {
     setProgress(0);
     
     try {
-      const res = await fetch('http://localhost:5000/api/optimization/run', {
+      const res = await fetch(apiUrl('/api/optimization/run'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,7 +110,7 @@ export default function OptimizationPanel() {
   const fetchResults = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/optimization/results?page=1&per_page=50');
+      const res = await fetch(apiUrl('/api/optimization/results?page=1&per_page=50'));
       if (res.ok) {
         const data = await res.json();
         setResults(data.results || []);

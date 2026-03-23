@@ -4,8 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
-  LineChart, 
-  Line, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -15,7 +13,7 @@ import {
   Area,
   ComposedChart
 } from 'recharts';
-import { TrendingUp, TrendingDown, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
+import { TrendingUp, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface RegimeData {
   timestamp: string;
@@ -56,7 +54,7 @@ export default function RegimeAnalysisPanel() {
   const [profitMatrix, setProfitMatrix] = useState<ProfitMatrixRow[]>([]);
   const [insights, setInsights] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedSymbol, setSelectedSymbol] = useState('XAUUSD');
+  const selectedSymbol = 'XAUUSD';
 
   const fetchRegimeData = async () => {
     setLoading(true);
@@ -70,6 +68,15 @@ export default function RegimeAnalysisPanel() {
 
       if (regimeRes.ok) {
         const regimeResult: RegimeAnalysis = await regimeRes.json();
+        setRegimeData(
+          (regimeResult.regime_distribution || []).map((entry) => ({
+            timestamp: regimeResult.current_regime.timestamp,
+            hurst_exponent: entry.hurst_exponent,
+            adx: entry.adx,
+            regime_class: entry.regime_class,
+            close: entry.close
+          }))
+        );
         
         // Fetch profit matrix
         const matrixRes = await fetch(`http://localhost:5000/api/regime/profit-matrix?symbol=${selectedSymbol}`);
@@ -88,14 +95,7 @@ export default function RegimeAnalysisPanel() {
 
   useEffect(() => {
     fetchRegimeData();
-  }, [selectedSymbol]);
-
-  const getRegimeColor = (regime: string) => {
-    if (regime?.includes('MeanRev')) return '#22c55e';
-    if (regime?.includes('Trend_Strong')) return '#ef4444';
-    if (regime?.includes('Trend')) return '#eab308';
-    return '#3b82f6';
-  };
+  }, []);
 
   const getRegimeBadge = (regime: string) => {
     if (regime?.includes('MeanRev')) {

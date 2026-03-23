@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
-  LineChart, 
-  Line, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -13,17 +10,10 @@ import {
   ResponsiveContainer,
   Area,
   ComposedChart,
+  Line,
   ReferenceLine
 } from 'recharts';
 import { Activity, Clock, AlertTriangle, TrendingDown, CheckCircle, RefreshCw } from 'lucide-react';
-
-interface SurvivalPoint {
-  time_hours: number;
-  survival_probability: number;
-  hazard_rate: number;
-  confidence_lower: number;
-  confidence_upper: number;
-}
 
 interface TimeStopSuggestion {
   suggested_time_stop: number;

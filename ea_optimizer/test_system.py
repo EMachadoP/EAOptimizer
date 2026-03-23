@@ -12,6 +12,12 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
+# Ensure Windows consoles can render status output without crashing.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Add backend to path
 sys.path.append('backend')
 
@@ -31,7 +37,9 @@ def test_database():
         print("✓ All tables created")
         
         session.close()
-        os.remove("test.db")
+        engine.dispose()
+        if os.path.exists("test.db"):
+            os.remove("test.db")
         return True
     except Exception as e:
         print(f"✗ Database test failed: {e}")
@@ -51,8 +59,8 @@ def test_trade_reconstruction():
         # Create sample trades
         sample_trades = pd.DataFrame({
             'ticket': [1, 2, 3],
-            'time_open': pd.date_range('2024-01-01', periods=3, freq='H'),
-            'time_close': pd.date_range('2024-01-01 02:00', periods=3, freq='H'),
+            'time_open': pd.date_range('2024-01-01', periods=3, freq='h'),
+            'time_close': pd.date_range('2024-01-01 02:00', periods=3, freq='h'),
             'type': [0, 0, 1],
             'volume': [0.01, 0.02, 0.01],
             'price_open': [2050.0, 2049.5, 2051.0],
@@ -76,7 +84,7 @@ def test_trade_reconstruction():
             'low': [2049.0, 2048.5, 2049.0],
             'close': [2050.5, 2050.0, 2050.5],
             'volume': [1000, 1200, 1100]
-        }, index=pd.date_range('2024-01-01', periods=3, freq='H'))
+        }, index=pd.date_range('2024-01-01', periods=3, freq='h'))
         
         basket = engine.reconstruct_basket_from_mt5(
             sample_trades,
@@ -116,7 +124,7 @@ def test_regime_detection():
             'low': prices * 0.999,
             'close': prices,
             'volume': np.random.randint(1000, 2000, 200)
-        }, index=pd.date_range('2024-01-01', periods=200, freq='H'))
+        }, index=pd.date_range('2024-01-01', periods=200, freq='h'))
         
         engine = RegimeDetectionEngine()
         result = engine.analyze(market_data)
@@ -194,10 +202,11 @@ def test_robustness_mapping():
         })
         
         landscape = RobustnessLandscape()
-        robust_zones = landscape.find_robust_zones(results)
+        robustness_data = landscape.build_landscape(results, fixed_atr=1.5)
+        robust_zones = landscape.find_robust_zones(robustness_data)
         
         print(f"✓ Robustness mapping completed")
-        print(f"  - Total configs: {len(results)}")
+        print(f"  - Total configs: {len(robustness_data)}")
         print(f"  - Robust zones found: {len(robust_zones)}")
         
         if len(robust_zones) > 0:
@@ -236,7 +245,7 @@ def test_optimization_engine():
             'low': prices * 0.99,
             'close': prices,
             'volume': np.random.randint(1000, 2000, n_bars)
-        }, index=pd.date_range('2024-01-01', periods=n_bars, freq='H'))
+        }, index=pd.date_range('2024-01-01', periods=n_bars, freq='h'))
         
         # Test risk metrics
         risk_calc = RiskMetricsCalculator()

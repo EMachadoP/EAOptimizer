@@ -13,6 +13,11 @@ import time
 import webbrowser
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 def print_banner():
     """Print system banner"""
     banner = """
@@ -68,7 +73,8 @@ def start_backend():
     print("STARTING BACKEND SERVER")
     print("="*80 + "\n")
     
-    backend_path = Path("backend/api/server.py")
+    project_root = Path(__file__).resolve().parent
+    backend_path = project_root / "backend" / "api" / "server.py"
     if not backend_path.exists():
         print(f"✗ Backend not found: {backend_path}")
         return None
@@ -76,7 +82,7 @@ def start_backend():
     # Start Flask server
     process = subprocess.Popen(
         [sys.executable, str(backend_path)],
-        cwd="backend",
+        cwd=str(project_root),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True

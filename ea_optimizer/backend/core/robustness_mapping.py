@@ -220,7 +220,8 @@ class RobustnessLandscape:
         robust_zones = []
         
         # Verificar se colunas necessárias existem
-        if 'is_robust' not in landscape.columns:
+        has_stability = 'neighbor_stability_pct' in landscape.columns
+        if 'is_robust' not in landscape.columns or not has_stability:
             # Se não temos dados de robustez completos, usar apenas score
             robust_configs = landscape[landscape['optimization_score'] >= min_score]
         else:
@@ -251,7 +252,7 @@ class RobustnessLandscape:
                 'center_multiplier': float(best['multiplier']),
                 'atr_filter': float(best['atr_filter']),
                 'optimization_score': float(best['optimization_score']),
-                'avg_stability': float(cluster_df['neighbor_stability_pct'].mean()),
+                'avg_stability': float(cluster_df['neighbor_stability_pct'].mean()) if has_stability else 0.0,
                 'cluster_size': len(cluster_df),
                 'grid_range': (
                     int(cluster_df['grid_pips'].min()),
@@ -283,6 +284,9 @@ class RobustnessLandscape:
         """
         peaks = []
         
+        if 'neighbor_stability_pct' not in landscape.columns:
+            return peaks
+
         # Configurações com alto score mas baixa estabilidade
         overfitting = landscape[
             (landscape['optimization_score'] > 80) &

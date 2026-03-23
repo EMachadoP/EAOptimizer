@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
 import { 
   Upload, 
   Database, 
@@ -25,8 +24,6 @@ interface ImportStatus {
 }
 
 export default function DataImportPanel() {
-  const [marketFile, setMarketFile] = useState<File | null>(null);
-  const [tradesFile, setTradesFile] = useState<File | null>(null);
   const [marketPath, setMarketPath] = useState('');
   const [tradesPath, setTradesPath] = useState('');
   const [importStatus, setImportStatus] = useState<ImportStatus>({

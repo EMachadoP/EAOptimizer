@@ -116,13 +116,6 @@ export default function RobustnessMappingPanel() {
     return '#ef4444';
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return '#22c55e';
-    if (score >= 60) return '#3b82f6';
-    if (score >= 40) return '#eab308';
-    return '#ef4444';
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}

@@ -4,25 +4,20 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
   BarChart,
+  CartesianGrid,
   Bar,
-  Cell
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
 } from 'recharts';
 import { 
-  Settings, 
   Play, 
-  TrendingUp, 
   TrendingDown, 
   Activity,
   Shield,
-  Target,
   RefreshCw,
   CheckCircle
 } from 'lucide-react';

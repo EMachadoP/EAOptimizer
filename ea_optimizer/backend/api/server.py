@@ -13,6 +13,7 @@ import sys
 import os
 from datetime import datetime, timedelta
 import json
+from sqlalchemy import text
 
 # Adicionar parent ao path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -477,27 +478,27 @@ def get_dashboard_summary():
         summary = {}
         
         # Contagens
-        cursor = session.execute("SELECT COUNT(*) FROM market_data")
+        cursor = session.execute(text("SELECT COUNT(*) FROM market_data"))
         summary['market_data_count'] = cursor.fetchone()[0]
         
-        cursor = session.execute("SELECT COUNT(*) FROM trades")
+        cursor = session.execute(text("SELECT COUNT(*) FROM trades"))
         summary['trades_count'] = cursor.fetchone()[0]
         
-        cursor = session.execute("SELECT COUNT(*) FROM grid_sequences")
+        cursor = session.execute(text("SELECT COUNT(*) FROM grid_sequences"))
         summary['baskets_count'] = cursor.fetchone()[0]
         
-        cursor = session.execute("SELECT COUNT(*) FROM optimization_results")
+        cursor = session.execute(text("SELECT COUNT(*) FROM optimization_results"))
         summary['optimization_configs'] = cursor.fetchone()[0]
         
         # Performance agregada
-        cursor = session.execute("""
+        cursor = session.execute(text("""
             SELECT 
-                SUM(total_profit) as total_profit,
+                SUM(total_return) as total_profit,
                 AVG(profit_factor) as avg_pf,
                 AVG(win_rate) as avg_wr
             FROM optimization_results
             WHERE optimization_score > 0
-        """)
+        """))
         row = cursor.fetchone()
         summary['total_profit'] = float(row[0]) if row[0] else 0
         summary['avg_profit_factor'] = float(row[1]) if row[1] else 0

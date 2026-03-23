@@ -1,44 +1,34 @@
 # EA Configuration Optimizer v1.2
-# Backend Dependencies
+# Backend dependencies validated for Python 3.13 on Windows.
 
-# Web Framework
-flask==3.0.0
-flask-cors==4.0.0
+# Web API
+Flask==3.0.0
+Flask-Cors==4.0.0
 
 # Database
-sqlalchemy==2.0.23
+SQLAlchemy==2.0.48
 
-# Data Science
-pandas==2.1.4
-numpy==1.26.2
-scipy==1.11.4
+# Core numerical stack
+numpy==2.2.6
+pandas==2.3.2
+scipy==1.17.1
 
-# Machine Learning (para análises avançadas)
-scikit-learn==1.3.2
-
-# Time Series Analysis
-statsmodels==0.14.1
-
-# Visualization (para geração de gráficos no backend)
-matplotlib==3.8.2
-seaborn==0.13.0
-plotly==5.17.0
-
-# HTML Parsing (para importar relatórios MT5)
-beautifulsoup4==4.12.2
-lxml==4.9.3
-
-# MetaTrader5 (opcional - para integração direta)
-# MetaTrader5==5.0.45
-
-# Utilidades
-python-dateutil==2.8.2
-pytz==2023.3
+# Import pipeline
+beautifulsoup4==4.14.3
+lxml==6.0.2
+python-dateutil==2.9.0
+pytz==2025.2
 
 # Testing
-pytest==7.4.3
-pytest-cov==4.1.0
+pytest==9.0.2
+pytest-cov==7.0.0
 
-# Development
-jupyter==1.0.0
-ipython==8.18.1
+# Optional integrations and notebooks
+# MetaTrader5==5.0.5640
+# jupyter
+# ipython
+# matplotlib
+# seaborn
+# plotly
+# scikit-learn
+# statsmodels

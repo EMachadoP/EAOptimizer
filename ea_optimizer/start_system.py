@@ -56,9 +56,9 @@ def init_database():
     print("\nInitializing database...")
     
     sys.path.append('backend')
-    from models.database import init_database
+    from models.database import init_database, resolve_db_path
     
-    db_path = "ea_optimizer.db"
+    db_path = resolve_db_path()
     if os.path.exists(db_path):
         print(f"✓ Database found: {db_path}")
     else:

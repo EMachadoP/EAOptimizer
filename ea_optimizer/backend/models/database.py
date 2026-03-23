@@ -11,6 +11,17 @@ import os
 
 Base = declarative_base()
 
+DEFAULT_DB_PATH = "ea_optimizer.db"
+
+
+def resolve_db_path(explicit_path: str | None = None) -> str:
+    """Resolve the SQLite path, preferring the deployment environment variable."""
+    db_path = explicit_path or os.getenv("EAOPTIMIZER_DB_PATH") or DEFAULT_DB_PATH
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    return db_path
+
 class MarketData(Base):
     """Tabela: market_data - Dados de mercado (OHLCV + indicadores)"""
     __tablename__ = 'market_data'
@@ -198,8 +209,9 @@ class SlippageModel(Base):
     sample_size = Column(Integer)
 
 # Database initialization
-def init_database(db_path: str = "ea_optimizer.db"):
+def init_database(db_path: str | None = None):
     """Initialize database with all tables"""
+    db_path = resolve_db_path(db_path)
     engine = create_engine(f'sqlite:///{db_path}', echo=False)
     Base.metadata.create_all(engine)
     return engine

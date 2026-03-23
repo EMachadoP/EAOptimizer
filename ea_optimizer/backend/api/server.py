@@ -29,13 +29,31 @@ from core import (
     MT5DataImporter,
     DataPipeline
 )
-from models.database import init_database, get_session
+from models.database import init_database, get_session, resolve_db_path
 
 app = Flask(__name__)
-CORS(app)
+
+
+def get_allowed_origins():
+    configured = os.getenv("EAOPTIMIZER_CORS_ORIGINS")
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+    vercel_frontend = os.getenv("EAOPTIMIZER_FRONTEND_URL")
+    if vercel_frontend:
+        return [vercel_frontend]
+
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://ea-optimizer-h2f54hu0z-eldons-projects-3194802d.vercel.app",
+    ]
+
+
+CORS(app, resources={r"/api/*": {"origins": get_allowed_origins()}})
 
 # Inicializar banco de dados
-DB_PATH = "ea_optimizer.db"
+DB_PATH = resolve_db_path()
 engine = init_database(DB_PATH)
 
 # Cache de dados
@@ -516,4 +534,8 @@ def get_dashboard_summary():
 # =============================================================================
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(
+        debug=os.getenv("FLASK_DEBUG", "").lower() == "true",
+        host='0.0.0.0',
+        port=int(os.getenv("PORT", "5000"))
+    )

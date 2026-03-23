@@ -157,7 +157,8 @@ def import_trades():
         return jsonify({
             'success': True,
             'records_imported': len(df),
-            'total_profit': float(df['profit'].sum()) if 'profit' in df.columns else 0
+            'baskets_reconstructed': int(df['basket_id'].nunique()) if 'basket_id' in df.columns else 0,
+            'total_profit': float(pd.to_numeric(df['profit'], errors='coerce').fillna(0).sum()) if 'profit' in df.columns else 0
         })
     
     except Exception as e:

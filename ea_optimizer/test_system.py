@@ -11,6 +11,7 @@ import os
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
+import tempfile
 
 # Ensure Windows consoles can render status output without crashing.
 if hasattr(sys.stdout, "reconfigure"):
@@ -103,6 +104,61 @@ def test_trade_reconstruction():
         import traceback
         traceback.print_exc()
         return False
+
+def test_mt5_hybrid_csv_import():
+    """Test MT5 hybrid CSV import and basket reconstruction"""
+    print("\n" + "="*60)
+    print("TEST: MT5 Hybrid CSV Import")
+    print("="*60)
+
+    temp_db = None
+    temp_csv = None
+    importer = None
+
+    try:
+        from core.mt5_importer import MT5DataImporter
+        from models.database import init_database
+
+        csv_content = """Position;Time;Symbol;Type;Volume;Price;S / L;T / P;Time.1;Price.1;Commission;Swap;Profit
+215350553;2026-03-16 00:10:00;XAUUSDc;sell;0.01;5 021,022;0,00;0,00;2026-03-16 01:12:37;5 007,623;0,00;0,00;13,40
+215350567;2026-03-16 00:10:01;XAUUSDc;sell;0.03;5 021,116;0,00;0,00;2026-03-16 01:12:37;4 987,832;0,00;0,00;99,80
+165755946;2026-03-23 07:25:06;XAUUSDc;buy;out;0.28;0,00;0,00;;;0,00;13,80;6 625,51
+"""
+
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as csv_handle:
+            csv_handle.write(csv_content)
+            temp_csv = csv_handle.name
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as db_handle:
+            temp_db = db_handle.name
+
+        init_database(temp_db)
+        importer = MT5DataImporter(temp_db)
+        df = importer.import_trades_from_csv(temp_csv, symbol="XAUUSDc")
+        validation = importer.validate_imported_data(symbol="XAUUSDc", min_bars=0, min_trades=1)
+        importer.disconnect()
+
+        assert len(df) == 2
+        assert set(df["direction"]) == {"SELL"}
+        assert df["basket_id"].nunique() == 1
+        assert validation["trades_count"] == 2
+
+        print("✓ Hybrid MT5 CSV parsed successfully")
+        print(f"  - Closed trades imported: {len(df)}")
+        print(f"  - Baskets reconstructed: {df['basket_id'].nunique()}")
+        return True
+    except Exception as e:
+        print(f"✗ MT5 hybrid CSV import test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        if importer is not None:
+            importer.disconnect()
+        if temp_csv and os.path.exists(temp_csv):
+            os.remove(temp_csv)
+        if temp_db and os.path.exists(temp_db):
+            os.remove(temp_db)
 
 def test_regime_detection():
     """Test regime detection engine"""
@@ -331,6 +387,7 @@ def run_all_tests():
     tests = [
         ("Database", test_database),
         ("Trade Reconstruction", test_trade_reconstruction),
+        ("MT5 Hybrid CSV Import", test_mt5_hybrid_csv_import),
         ("Regime Detection", test_regime_detection),
         ("Survival Analysis", test_survival_analysis),
         ("Robustness Mapping", test_robustness_mapping),

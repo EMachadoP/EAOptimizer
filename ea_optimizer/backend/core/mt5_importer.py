@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import sqlite3
 import json
 import hashlib
+import csv
 
 @dataclass
 class MT5Config:
@@ -103,36 +104,183 @@ class MT5DataImporter:
         """
         Importa histórico de trades de arquivo CSV
         
-        Espera colunas: ticket, time_open, time_close, type, volume, 
-                       price_open, price_close, commission, swap, profit
+        Aceita:
+        - CSV limpo com colunas ticket/time_open/time_close/type/...
+        - Export híbrido do histórico MT5 com colunas como
+          Position/Time/Time.1/Price/Price.1 e linhas extras de deals
         """
-        df = pd.read_csv(csv_path)
-        
-        # Normalizar nomes de colunas
-        df.columns = [col.lower().strip() for col in df.columns]
-        
-        # Converter timestamps
-        df['time_open'] = pd.to_datetime(df['time_open'])
-        if 'time_close' in df.columns:
-            df['time_close'] = pd.to_datetime(df['time_close'])
-        
-        # Adicionar symbol
-        df['symbol'] = symbol
-        
-        # Calcular slippage se não existir
-        if 'slippage' not in df.columns:
-            df['slippage'] = 0.0
-        
-        # Garantir colunas necessárias
-        required_cols = ['ticket', 'time_open', 'type', 'volume', 'price_open', 'profit']
-        for col in required_cols:
-            if col not in df.columns:
-                raise ValueError(f"Coluna obrigatória {col} não encontrada no CSV")
-        
-        # Salvar no banco
+        raw_df = self._read_trade_csv(csv_path)
+        df = self._normalize_trades_dataframe(raw_df, symbol)
+
+        if len(df) == 0:
+            raise ValueError(
+                "Nenhum trade fechado válido encontrado no arquivo. "
+                "Verifique se o CSV exportado contém histórico fechado do MT5."
+            )
+
         self._save_trades(df)
-        
+        self._save_grid_sequences(df)
+
         return df
+
+    def _read_trade_csv(self, csv_path: str) -> pd.DataFrame:
+        """Lê CSV de trades tentando preservar o formato bruto do MT5."""
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as handle:
+            sample = handle.read(4096)
+            handle.seek(0)
+            try:
+                delimiter = csv.Sniffer().sniff(sample, delimiters=";,").delimiter
+            except csv.Error:
+                delimiter = ";"
+
+        return pd.read_csv(csv_path, sep=delimiter, dtype=str, encoding="utf-8-sig")
+
+    def _normalize_trades_dataframe(
+        self,
+        df: pd.DataFrame,
+        fallback_symbol: str
+    ) -> pd.DataFrame:
+        """Converte diferentes layouts de CSV do MT5 para o schema interno."""
+        trades_df = df.copy()
+        trades_df.columns = [col.strip() for col in trades_df.columns]
+        column_mapping = {
+            "Position": "ticket",
+            "Ticket": "ticket",
+            "Time": "time_open",
+            "Time.1": "time_close",
+            "Open Time": "time_open",
+            "Close Time": "time_close",
+            "Price": "price_open",
+            "Price.1": "price_close",
+            "Open Price": "price_open",
+            "Close Price": "price_close",
+            "S / L": "sl",
+            "T / P": "tp",
+            "Type": "type",
+            "Volume": "volume",
+            "Profit": "profit",
+            "Commission": "commission",
+            "Swap": "swap",
+            "Symbol": "symbol",
+            "Slippage": "slippage",
+        }
+        trades_df = trades_df.rename(columns=column_mapping)
+        trades_df.columns = [col.lower().strip() for col in trades_df.columns]
+
+        for column in ["time_open", "time_close"]:
+            if column in trades_df.columns:
+                trades_df[column] = pd.to_datetime(trades_df[column], errors="coerce")
+
+        numeric_columns = [
+            "ticket",
+            "volume",
+            "price_open",
+            "price_close",
+            "sl",
+            "tp",
+            "profit",
+            "commission",
+            "swap",
+            "slippage",
+        ]
+        for column in numeric_columns:
+            if column in trades_df.columns:
+                trades_df[column] = trades_df[column].apply(self._parse_mt5_number)
+
+        if "type" in trades_df.columns:
+            trades_df["type"] = trades_df["type"].astype(str).str.strip().str.lower()
+
+        if "symbol" not in trades_df.columns:
+            trades_df["symbol"] = fallback_symbol
+        else:
+            trades_df["symbol"] = trades_df["symbol"].fillna("").astype(str).str.strip()
+            trades_df.loc[trades_df["symbol"] == "", "symbol"] = fallback_symbol
+
+        required = ["ticket", "time_open", "type", "volume", "price_open", "profit"]
+        for column in required:
+            if column not in trades_df.columns:
+                raise ValueError(f"Coluna obrigatória {column} não encontrada no CSV")
+
+        closed_mask = (
+            trades_df["ticket"].notna()
+            & trades_df["time_open"].notna()
+            & trades_df["type"].isin(["buy", "sell"])
+            & trades_df["volume"].notna()
+            & trades_df["time_close"].notna()
+            & trades_df["price_open"].notna()
+            & trades_df["price_close"].notna()
+        )
+        trades_df = trades_df.loc[closed_mask].copy()
+
+        if len(trades_df) == 0:
+            return pd.DataFrame()
+
+        trades_df["ticket"] = trades_df["ticket"].astype(int)
+        trades_df["direction"] = trades_df["type"].str.upper()
+        for column in ["commission", "swap", "slippage"]:
+            if column not in trades_df.columns:
+                trades_df[column] = 0.0
+            trades_df[column] = trades_df[column].fillna(0.0)
+        trades_df["basket_id"] = self._build_basket_ids(trades_df)
+        trades_df = trades_df.drop_duplicates(
+            subset=["ticket", "time_open", "time_close", "direction", "volume", "price_open", "price_close"]
+        )
+
+        output_columns = [
+            "ticket",
+            "basket_id",
+            "time_open",
+            "time_close",
+            "symbol",
+            "direction",
+            "volume",
+            "price_open",
+            "price_close",
+            "slippage",
+            "commission",
+            "swap",
+            "profit",
+        ]
+        return trades_df[output_columns].rename(
+            columns={
+                "time_open": "timestamp_open",
+                "time_close": "timestamp_close",
+                "slippage": "slippage_pips",
+            }
+        )
+
+    def _parse_mt5_number(self, value):
+        """Converte números do MT5 com espaço milhar e vírgula decimal."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return np.nan
+
+        text = str(value).strip().replace("\xa0", " ")
+        if not text:
+            return np.nan
+
+        if "," in text:
+            text = text.replace(" ", "").replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(" ", "")
+
+        try:
+            return float(text)
+        except ValueError:
+            return np.nan
+
+    def _build_basket_ids(self, trades_df: pd.DataFrame) -> pd.Series:
+        """
+        Agrupa trades fechados em baskets usando símbolo, direção e segundo de fechamento.
+        Isso captura bem grids fechados em bloco no histórico exportado do MT5.
+        """
+        basket_keys = trades_df.apply(
+            lambda row: (
+                f"{row['symbol']}|{row['direction']}|"
+                f"{row['time_close'].strftime('%Y-%m-%d %H:%M:%S')}"
+            ),
+            axis=1,
+        )
+        return basket_keys.apply(lambda key: hashlib.md5(key.encode()).hexdigest()[:32])
     
     def import_mt5_report(
         self,
@@ -229,7 +377,8 @@ class MT5DataImporter:
             raise ImportError("MetaTrader5 Python não instalado. Use: pip install MetaTrader5")
         
         # Inicializar MT5
-        if not mt5.initialize(mt5_path):
+        initialized = mt5.initialize(path=mt5_path) if mt5_path else mt5.initialize()
+        if not initialized:
             raise ConnectionError("Falha ao inicializar MT5")
         
         # Definir datas padrão
@@ -362,8 +511,111 @@ class MT5DataImporter:
                 raise ValueError(f"Coluna obrigatória ausente para salvar trades: {column}")
 
         trades_df = trades_df[required_columns]
+        trades_df = trades_df.drop_duplicates()
         trades_df.to_sql('trades', self.connection, if_exists='append', index=False)
         print(f"Salvos {len(trades_df)} trades")
+
+    def _save_grid_sequences(self, trades_df: pd.DataFrame):
+        """Salva baskets heurísticos a partir de trades fechados importados."""
+        if self.connection is None:
+            self.connect()
+
+        df = trades_df.copy()
+        if "timestamp_open" not in df.columns or "timestamp_close" not in df.columns:
+            raise ValueError("Trades precisam conter timestamp_open e timestamp_close para gerar baskets")
+
+        grouped = (
+            df.groupby("basket_id")
+            .agg(
+                symbol=("symbol", "first"),
+                timestamp_start=("timestamp_open", "min"),
+                timestamp_end=("timestamp_close", "max"),
+                total_trades=("ticket", "count"),
+                total_profit=("profit", "sum"),
+                realized_profit=("profit", "sum"),
+                floating_pnl=("profit", lambda _: 0.0),
+                total_commission=("commission", "sum"),
+                total_swap=("swap", "sum"),
+                basket_mae=("profit", lambda series: abs(min(series.sum(), 0.0))),
+                basket_mfe=("profit", lambda series: max(series.sum(), 0.0)),
+                max_levels=("ticket", "count"),
+                lot_multiplier=("volume", self._estimate_lot_multiplier),
+                grid_spacing_pips=("price_open", self._estimate_grid_spacing_pips),
+                hit_take_profit=("profit", lambda series: bool((series > 0).any())),
+                hit_stop_loss=("profit", lambda series: series.sum() < 0),
+            )
+            .reset_index()
+        )
+
+        grouped["atr_filter"] = 1.5
+        grouped["phantom_winner"] = (
+            (grouped["total_profit"] > 0)
+            & (grouped["total_trades"] > 1)
+            & (grouped["basket_mfe"] > 0)
+            & (grouped["total_profit"] < grouped["basket_mfe"] * 0.25)
+        )
+        grouped["regime_at_start"] = None
+
+        required_columns = [
+            "basket_id",
+            "symbol",
+            "timestamp_start",
+            "timestamp_end",
+            "grid_spacing_pips",
+            "lot_multiplier",
+            "max_levels",
+            "atr_filter",
+            "total_trades",
+            "total_profit",
+            "basket_mae",
+            "basket_mfe",
+            "realized_profit",
+            "floating_pnl",
+            "total_commission",
+            "total_swap",
+            "phantom_winner",
+            "hit_take_profit",
+            "hit_stop_loss",
+            "regime_at_start",
+        ]
+
+        cursor = self.connection.cursor()
+        cursor.executemany(
+            "DELETE FROM grid_sequences WHERE basket_id = ?",
+            [(basket_id,) for basket_id in grouped["basket_id"].tolist()],
+        )
+        self.connection.commit()
+
+        grouped[required_columns].to_sql("grid_sequences", self.connection, if_exists="append", index=False)
+        print(f"Salvos {len(grouped)} baskets heurísticos")
+
+    def _estimate_lot_multiplier(self, volumes: pd.Series) -> float:
+        clean_volumes = [float(v) for v in volumes.dropna().tolist() if float(v) > 0]
+        if len(clean_volumes) < 2:
+            return 1.0
+
+        ordered = sorted(clean_volumes)
+        ratios = []
+        for previous, current in zip(ordered, ordered[1:]):
+            if previous > 0 and current >= previous:
+                ratios.append(current / previous)
+
+        if not ratios:
+            return 1.0
+
+        return round(float(np.median(ratios)), 2)
+
+    def _estimate_grid_spacing_pips(self, open_prices: pd.Series) -> int:
+        prices = sorted({float(price) for price in open_prices.dropna().tolist()})
+        if len(prices) < 2:
+            return 0
+
+        deltas = [abs(current - previous) for previous, current in zip(prices, prices[1:]) if current != previous]
+        if not deltas:
+            return 0
+
+        median_delta = float(np.median(deltas))
+        return int(round(median_delta / 0.1))
     
     def _extract_metrics_from_html(self, soup) -> Dict:
         """Extrai métricas do relatório HTML"""

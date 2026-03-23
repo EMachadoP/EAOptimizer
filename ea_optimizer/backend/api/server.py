@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import json
 import tempfile
 from sqlalchemy import text
+from typing import Optional
 
 # Adicionar parent ao path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -67,6 +68,23 @@ def _persist_uploaded_file(uploaded_file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         uploaded_file.save(tmp.name)
         return tmp.name
+
+
+def _normalize_symbol_family(symbol: str) -> str:
+    """Use the broker-neutral symbol prefix so XAUUSD matches XAUUSDc/XAUUSDm."""
+    raw = (symbol or "XAUUSD").strip().upper()
+    for base in ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD"]:
+        if raw.startswith(base):
+            return base
+    return raw
+
+
+def _load_symbol_frame(session, table_name: str, symbol: str, order_by: Optional[str] = None):
+    symbol_family = _normalize_symbol_family(symbol)
+    query = f"SELECT * FROM {table_name} WHERE UPPER(symbol) LIKE :symbol_like"
+    if order_by:
+        query += f" ORDER BY {order_by}"
+    return pd.read_sql(text(query), session.bind, params={"symbol_like": f"{symbol_family}%"})
 
 # =============================================================================
 # Health Check
@@ -181,12 +199,7 @@ def analyze_regime():
         # Carregar dados de mercado
         session = get_session(engine)
         
-        query = """
-            SELECT * FROM market_data 
-            WHERE symbol = ? 
-            ORDER BY timestamp
-        """
-        df = pd.read_sql(query, session.bind, params=(symbol,))
+        df = _load_symbol_frame(session, 'market_data', symbol, order_by='timestamp')
         
         if len(df) == 0:
             return jsonify({'error': 'Dados de mercado não encontrados'}), 404
@@ -234,18 +247,8 @@ def get_profit_matrix():
         session = get_session(engine)
         
         # Carregar dados
-        market_query = """
-            SELECT * FROM market_data 
-            WHERE symbol = ? 
-            ORDER BY timestamp
-        """
-        df_market = pd.read_sql(market_query, session.bind, params=(symbol,))
-        
-        trades_query = """
-            SELECT * FROM trades 
-            WHERE symbol = ?
-        """
-        df_trades = pd.read_sql(trades_query, session.bind, params=(symbol,))
+        df_market = _load_symbol_frame(session, 'market_data', symbol, order_by='timestamp')
+        df_trades = _load_symbol_frame(session, 'trades', symbol)
         
         if len(df_market) == 0 or len(df_trades) == 0:
             return jsonify({'error': 'Dados insuficientes'}), 404
@@ -287,11 +290,7 @@ def analyze_survival():
         session = get_session(engine)
         
         # Carregar baskets
-        query = """
-            SELECT * FROM grid_sequences 
-            WHERE symbol = ?
-        """
-        df_baskets = pd.read_sql(query, session.bind, params=(symbol,))
+        df_baskets = _load_symbol_frame(session, 'grid_sequences', symbol)
         
         if len(df_baskets) == 0:
             return jsonify({'error': 'Baskets não encontrados'}), 404
@@ -429,12 +428,7 @@ def run_optimization():
         
         # Carregar dados de mercado
         session = get_session(engine)
-        query = """
-            SELECT * FROM market_data 
-            WHERE symbol = ? 
-            ORDER BY timestamp
-        """
-        df_market = pd.read_sql(query, session.bind, params=(symbol,))
+        df_market = _load_symbol_frame(session, 'market_data', symbol, order_by='timestamp')
         session.close()
         
         if len(df_market) == 0:

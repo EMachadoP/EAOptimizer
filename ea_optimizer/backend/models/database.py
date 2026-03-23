@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
+from typing import Optional
 import os
 
 Base = declarative_base()
@@ -14,7 +15,7 @@ Base = declarative_base()
 DEFAULT_DB_PATH = "ea_optimizer.db"
 
 
-def resolve_db_path(explicit_path: str | None = None) -> str:
+def resolve_db_path(explicit_path: Optional[str] = None) -> str:
     """Resolve the SQLite path, preferring the deployment environment variable."""
     db_path = explicit_path or os.getenv("EAOPTIMIZER_DB_PATH") or DEFAULT_DB_PATH
     db_dir = os.path.dirname(db_path)
@@ -209,7 +210,7 @@ class SlippageModel(Base):
     sample_size = Column(Integer)
 
 # Database initialization
-def init_database(db_path: str | None = None):
+def init_database(db_path: Optional[str] = None):
     """Initialize database with all tables"""
     db_path = resolve_db_path(db_path)
     engine = create_engine(f'sqlite:///{db_path}', echo=False)

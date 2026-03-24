@@ -423,20 +423,6 @@ def _build_mq5_diagnostics_report(symbol: str):
     return _json_safe(report)
 
 # =============================================================================
-# Diagnostics Endpoints
-# =============================================================================
-
-@app.route('/api/diagnostics/mq5', methods=['GET'])
-def get_mq5_diagnostics():
-    """Retorna diagnostico consolidado para o MQ5"""
-    try:
-        symbol = request.args.get('symbol', 'XAUUSD')
-        report = _build_mq5_diagnostics_report(symbol)
-        return jsonify(report)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# =============================================================================
 # Health Check
 # =============================================================================
 

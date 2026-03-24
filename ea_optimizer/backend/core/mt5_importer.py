@@ -18,6 +18,7 @@ import sqlite3
 import json
 import hashlib
 import csv
+import re
 
 @dataclass
 class MT5Config:
@@ -317,7 +318,38 @@ class MT5DataImporter:
             with open(html_path, 'r', encoding='utf-16') as f:
                 html_content = f.read()
 
-        # ---- 2. Extrair TODAS as tabelas via pandas ----
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # ---- 2. Tentar parser dedicado para relatórios reais do Strategy Tester ----
+        result_df = self._extract_strategy_tester_transactions_table(soup, symbol)
+
+        if len(result_df) > 0:
+            print(f"[mt5_importer] Strategy Tester HTML: {len(result_df)} trades extraídos da seção 'Transações'")
+            result_df["basket_id"] = self._build_basket_ids(result_df)
+
+            output_columns = [
+                "ticket", "basket_id", "time_open", "time_close",
+                "symbol", "direction", "volume", "price_open",
+                "price_close", "slippage_pips", "commission", "swap", "profit",
+            ]
+            result_df = result_df[[c for c in output_columns if c in result_df.columns]].rename(
+                columns={
+                    "time_open": "timestamp_open",
+                    "time_close": "timestamp_close",
+                }
+            )
+
+            self._save_trades(result_df)
+            self._save_grid_sequences(result_df)
+            metrics = self._extract_metrics_from_html(soup)
+
+            return {
+                'trades': result_df,
+                'metrics': metrics,
+                'total_trades': len(result_df)
+            }
+
+        # ---- 3. Extrair TODAS as tabelas via pandas como fallback ----
         try:
             all_dfs = pd.read_html(html_content, flavor='bs4')
         except Exception:
@@ -332,7 +364,7 @@ class MT5DataImporter:
         if not all_dfs:
             raise ValueError("Nenhuma tabela encontrada no relatório HTML.")
 
-        # ---- 3. Identificar a tabela de deals/trades ----
+        # ---- 4. Identificar a tabela de deals/trades ----
         # Mapa de sinônimos: nome canônico -> possíveis variações (EN + PT)
         KNOWN_HEADERS = {
             "deal":       {"deal", "negócio", "negocio", "ticket", "#"},
@@ -374,7 +406,7 @@ class MT5DataImporter:
                 "Certifique-se de exportar o relatório pelo Strategy Tester do MT5."
             )
 
-        # ---- 4. Normalizar nomes de colunas ----
+        # ---- 5. Normalizar nomes de colunas ----
         df = best_df.copy()
         df.columns = [str(c).strip().lower() for c in df.columns]
 
@@ -405,7 +437,7 @@ class MT5DataImporter:
                     col_deal = c
                     break
 
-        # ---- 5. Montar DataFrame de trades ----
+        # ---- 6. Montar DataFrame de trades ----
         trades_data = []
 
         for _, row in df.iterrows():
@@ -509,9 +541,9 @@ class MT5DataImporter:
         )
 
         self._save_trades(result_df)
+        self._save_grid_sequences(result_df)
 
         # Extrair métricas do relatório (usa BeautifulSoup)
-        soup = BeautifulSoup(html_content, 'html.parser')
         metrics = self._extract_metrics_from_html(soup)
 
         return {
@@ -519,6 +551,139 @@ class MT5DataImporter:
             'metrics': metrics,
             'total_trades': len(result_df)
         }
+
+    def _extract_strategy_tester_transactions_table(self, soup, fallback_symbol: str) -> pd.DataFrame:
+        """Extrai trades da seção 'Transações' do relatório HTML do Strategy Tester do MT5."""
+        tables = soup.find_all("table")
+        transaction_table = None
+
+        for table in tables:
+            heading = table.find("th")
+            if heading and "transacoes" in self._normalize_html_label(heading.get_text(" ", strip=True)):
+                transaction_table = table
+                break
+
+        if transaction_table is None:
+            return pd.DataFrame()
+
+        rows = transaction_table.find_all("tr")
+        header_index = None
+        headers: List[str] = []
+
+        for index, row in enumerate(rows):
+            cells = row.find_all(["td", "th"])
+            labels = [self._normalize_html_label(cell.get_text(" ", strip=True)) for cell in cells]
+            if "horario" in labels and "lucro" in labels and "direcao" in labels:
+                header_index = index
+                headers = labels
+                break
+
+        if header_index is None:
+            return pd.DataFrame()
+
+        trades_data = []
+        open_positions: Dict[Tuple[str, str], List[Dict]] = {}
+
+        for row in rows[header_index + 1:]:
+            cells = row.find_all("td")
+            if len(cells) != len(headers):
+                continue
+
+            raw_row = {
+                header: cell.get_text(" ", strip=True)
+                for header, cell in zip(headers, cells)
+            }
+
+            row_type = self._normalize_html_label(raw_row.get("tipo", ""))
+            direction = self._normalize_html_label(raw_row.get("direcao", ""))
+
+            if row_type == "balance":
+                continue
+            if direction not in {"in", "out"}:
+                continue
+
+            symbol = raw_row.get("ativo", "").strip() or fallback_symbol
+            raw_side = raw_row.get("tipo", "").strip().upper()
+            if raw_side not in {"BUY", "SELL"}:
+                continue
+
+            # In MT5 Strategy Tester reports, `out` rows are the closing deal and
+            # the displayed side is the opposite of the original position.
+            side = raw_side if direction == "in" else ("SELL" if raw_side == "BUY" else "BUY")
+            volume = self._parse_mt5_number(raw_row.get("volume"))
+            price = self._parse_mt5_number(raw_row.get("preco"))
+            ticket = self._parse_mt5_number(raw_row.get("ordem") or raw_row.get("oferta"))
+            commission = self._parse_mt5_number(raw_row.get("comissao"))
+            swap_val = self._parse_mt5_number(raw_row.get("swap"))
+            profit = self._parse_mt5_number(raw_row.get("lucro"))
+            timestamp = pd.to_datetime(raw_row.get("horario"), errors="coerce")
+            comment = raw_row.get("comentario", "").strip()
+
+            if pd.isna(timestamp) or pd.isna(volume) or pd.isna(price):
+                continue
+
+            trade_key = (symbol, side)
+
+            if direction == "in":
+                open_positions.setdefault(trade_key, []).append({
+                    "time_open": timestamp,
+                    "price_open": 0.0 if pd.isna(price) else float(price),
+                    "volume": 0.01 if pd.isna(volume) else float(volume),
+                    "comment": comment,
+                    "ticket": int(ticket) if not pd.isna(ticket) else None,
+                })
+                continue
+
+            # direction == out
+            matched_open = None
+            if trade_key in open_positions and open_positions[trade_key]:
+                matched_open = open_positions[trade_key].pop(0)
+
+            time_open = matched_open["time_open"] if matched_open else timestamp
+            price_open = matched_open["price_open"] if matched_open else float(price)
+            open_ticket = matched_open["ticket"] if matched_open else None
+            open_comment = matched_open["comment"] if matched_open else ""
+
+            trades_data.append({
+                "ticket": int(ticket) if not pd.isna(ticket) else (open_ticket or 0),
+                "time_open": time_open,
+                "time_close": timestamp,
+                "direction": side,
+                "volume": float(volume),
+                "price_open": float(price_open),
+                "price_close": float(price),
+                "commission": 0.0 if pd.isna(commission) else float(commission),
+                "swap": 0.0 if pd.isna(swap_val) else float(swap_val),
+                "profit": 0.0 if pd.isna(profit) else float(profit),
+                "symbol": symbol,
+                "slippage_pips": 0.0,
+                "comment": open_comment or comment,
+            })
+
+        return pd.DataFrame(trades_data)
+
+    def _normalize_html_label(self, text: str) -> str:
+        """Normaliza cabeçalhos/labels do HTML do MT5 para comparação."""
+        normalized = (text or "").strip().lower()
+        replacements = {
+            "á": "a",
+            "à": "a",
+            "ã": "a",
+            "â": "a",
+            "é": "e",
+            "ê": "e",
+            "í": "i",
+            "ó": "o",
+            "ô": "o",
+            "õ": "o",
+            "ú": "u",
+            "ç": "c",
+            "/": " ",
+        }
+        for source, target in replacements.items():
+            normalized = normalized.replace(source, target)
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized.replace(" ", "")
     
     def import_from_mt5_terminal(
         self,

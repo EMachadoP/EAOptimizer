@@ -160,6 +160,90 @@ def test_mt5_hybrid_csv_import():
         if temp_db and os.path.exists(temp_db):
             os.remove(temp_db)
 
+def test_mt5_strategy_tester_html_import():
+    """Test MT5 Strategy Tester HTML import using the Portuguese 'Transações' section."""
+    print("\n" + "="*60)
+    print("TEST: MT5 Strategy Tester HTML Import")
+    print("="*60)
+
+    temp_db = None
+    temp_html = None
+    importer = None
+
+    try:
+        from core.mt5_importer import MT5DataImporter
+        from models.database import init_database
+
+        html_content = """<!DOCTYPE html>
+<html>
+<body>
+  <table cellspacing="1" cellpadding="3" border="0">
+    <tr align="center">
+      <th colspan="13"><div><b>Transações</b></div></th>
+    </tr>
+    <tr align="center" bgcolor="#E5F0FC">
+      <td><b>Horário</b></td>
+      <td><b>Oferta</b></td>
+      <td><b>Ativo</b></td>
+      <td><b>Tipo</b></td>
+      <td><b>Direção</b></td>
+      <td><b>Volume</b></td>
+      <td><b>Preço</b></td>
+      <td><b>Ordem</b></td>
+      <td><b>Comissão</b></td>
+      <td><b>Swap</b></td>
+      <td><b>Lucro</b></td>
+      <td><b>Saldo</b></td>
+      <td><b>Comentário</b></td>
+    </tr>
+    <tr><td>2025.10.01 13:31:55</td><td>2</td><td>XAUUSDm</td><td>sell</td><td>in</td><td>0.01</td><td>3875.308</td><td>2</td><td>0.00</td><td>0.00</td><td>0.00</td><td>10000.00</td><td>L1</td></tr>
+    <tr><td>2025.10.01 13:31:58</td><td>3</td><td>XAUUSDm</td><td>sell</td><td>in</td><td>0.02</td><td>3875.639</td><td>3</td><td>0.00</td><td>0.00</td><td>0.00</td><td>10000.00</td><td>L2</td></tr>
+    <tr><td>2025.10.01 13:32:15</td><td>4</td><td>XAUUSDm</td><td>buy</td><td>out</td><td>0.02</td><td>3873.857</td><td>4</td><td>0.00</td><td>0.00</td><td>3.57</td><td>10003.57</td><td></td></tr>
+    <tr><td>2025.10.01 13:32:15</td><td>5</td><td>XAUUSDm</td><td>buy</td><td>out</td><td>0.01</td><td>3873.857</td><td>5</td><td>0.00</td><td>0.00</td><td>1.45</td><td>10005.02</td><td></td></tr>
+  </table>
+</body>
+</html>"""
+
+        with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as html_handle:
+            html_handle.write(html_content)
+            temp_html = html_handle.name
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as db_handle:
+            temp_db = db_handle.name
+
+        init_database(temp_db)
+        importer = MT5DataImporter(temp_db)
+        result = importer.import_mt5_report(temp_html, symbol="XAUUSDm")
+        validation = importer.validate_imported_data(symbol="XAUUSDm", min_bars=0, min_trades=1)
+        basket_count = importer.connection.execute(
+            "SELECT COUNT(*) FROM grid_sequences WHERE symbol = ?",
+            ("XAUUSDm",)
+        ).fetchone()[0]
+        importer.disconnect()
+
+        df = result["trades"]
+        assert len(df) == 2
+        assert set(df["direction"]) == {"SELL"}
+        assert validation["trades_count"] == 2
+        assert basket_count >= 1
+
+        print("✓ Strategy Tester HTML parsed successfully")
+        print(f"  - Closed trades imported: {len(df)}")
+        print(f"  - Baskets reconstructed: {basket_count}")
+        return True
+    except Exception as e:
+        print(f"✗ MT5 Strategy Tester HTML import test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        if importer is not None:
+            importer.disconnect()
+        if temp_html and os.path.exists(temp_html):
+            os.remove(temp_html)
+        if temp_db and os.path.exists(temp_db):
+            os.remove(temp_db)
+
 def test_regime_detection():
     """Test regime detection engine"""
     print("\n" + "="*60)
@@ -338,7 +422,8 @@ def test_optimization_engine():
         print(f"  - Optimization Score: {metrics.optimization_score:.1f}")
 
         try:
-            engine.evaluate_config(config)
+            empty_engine = OptimizationEngine(pd.DataFrame())
+            empty_engine.evaluate_config(config)
             raise AssertionError("Expected ValueError when no real inputs are provided")
         except ValueError:
             print("✓ Engine correctly rejects simulated evaluation paths")
@@ -444,6 +529,7 @@ def run_all_tests():
         ("Database", test_database),
         ("Trade Reconstruction", test_trade_reconstruction),
         ("MT5 Hybrid CSV Import", test_mt5_hybrid_csv_import),
+        ("MT5 Strategy Tester HTML Import", test_mt5_strategy_tester_html_import),
         ("Regime Detection", test_regime_detection),
         ("Survival Analysis", test_survival_analysis),
         ("Robustness Mapping", test_robustness_mapping),

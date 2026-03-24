@@ -249,7 +249,10 @@ class OptimizationEngine:
                 return metrics
 
         if trades is None:
-            return self._simulate_performance(config)
+            raise ValueError(
+                "OptimizationEngine requires real historical baskets or real trades. "
+                "Simulated evaluation has been removed."
+            )
         if len(trades) == 0:
             return self._empty_metrics()
         

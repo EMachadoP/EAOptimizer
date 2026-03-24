@@ -558,8 +558,11 @@ class MT5DataImporter:
         transaction_table = None
 
         for table in tables:
-            heading = table.find("th")
-            if heading and "transacoes" in self._normalize_html_label(heading.get_text(" ", strip=True)):
+            headings = table.find_all("th")
+            if any(
+                "transacoes" in self._normalize_html_label(heading.get_text(" ", strip=True))
+                for heading in headings
+            ):
                 transaction_table = table
                 break
 

@@ -9,7 +9,8 @@ import {
   Settings, 
   Database,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  Bug
 } from 'lucide-react';
 
 import DashboardSummary from './sections/DashboardSummary';
@@ -18,6 +19,7 @@ import SurvivalAnalysisPanel from './sections/SurvivalAnalysisPanel';
 import RobustnessMappingPanel from './sections/RobustnessMappingPanel';
 import OptimizationPanel from './sections/OptimizationPanel';
 import DataImportPanel from './sections/DataImportPanel';
+import DiagnosticsPanel from './sections/DiagnosticsPanel';
 import { apiUrl } from '@/lib/api';
 
 import './App.css';
@@ -111,7 +113,7 @@ function App() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="ea-tabs-list grid grid-cols-6 gap-3 p-1.5">
+          <TabsList className="ea-tabs-list grid grid-cols-7 gap-3 p-1.5">
             <TabsTrigger value="dashboard" className="ea-tabs-trigger gap-2">
               <BarChart3 className="w-4 h-4" />
               Dashboard
@@ -131,6 +133,10 @@ function App() {
             <TabsTrigger value="optimization" className="ea-tabs-trigger gap-2">
               <Settings className="w-4 h-4" />
               Optimization
+            </TabsTrigger>
+            <TabsTrigger value="diagnostics" className="ea-tabs-trigger gap-2">
+              <Bug className="w-4 h-4" />
+              Diagnostics
             </TabsTrigger>
             <TabsTrigger value="data" className="ea-tabs-trigger gap-2">
               <Database className="w-4 h-4" />
@@ -156,6 +162,10 @@ function App() {
 
           <TabsContent value="optimization" className="space-y-4">
             <OptimizationPanel />
+          </TabsContent>
+
+          <TabsContent value="diagnostics" className="space-y-4">
+            <DiagnosticsPanel />
           </TabsContent>
 
           <TabsContent value="data" className="space-y-4">

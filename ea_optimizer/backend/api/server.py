@@ -115,6 +115,312 @@ def _json_safe(value):
             return None
     return value
 
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        if value is None or pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        if value is None or pd.isna(value):
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _build_diagnostic_findings(
+    trades_df: pd.DataFrame,
+    baskets_df: pd.DataFrame,
+    market_df: pd.DataFrame,
+    optimization_df: pd.DataFrame
+):
+    findings = []
+    recommendations = []
+
+    trades_profit = pd.to_numeric(trades_df.get('profit'), errors='coerce').fillna(0.0) if len(trades_df) else pd.Series(dtype=float)
+    baskets_profit = pd.to_numeric(baskets_df.get('realized_profit', baskets_df.get('total_profit')), errors='coerce').fillna(0.0) if len(baskets_df) else pd.Series(dtype=float)
+    basket_mae = pd.to_numeric(baskets_df.get('basket_mae'), errors='coerce').fillna(0.0) if len(baskets_df) else pd.Series(dtype=float)
+    exposure_hours = baskets_df.get('exposure_time_hours', pd.Series(dtype=float))
+    exposure_hours = pd.to_numeric(exposure_hours, errors='coerce').fillna(0.0) if len(baskets_df) else pd.Series(dtype=float)
+
+    net_profit = _safe_float(trades_profit.sum())
+    win_rate = _safe_float((trades_profit > 0).mean() * 100 if len(trades_profit) else 0.0)
+    avg_levels = _safe_float(pd.to_numeric(baskets_df.get('total_trades'), errors='coerce').fillna(0.0).mean() if len(baskets_df) else 0.0)
+    stop_rate = _safe_float(pd.to_numeric(baskets_df.get('hit_stop_loss'), errors='coerce').fillna(0.0).mean() * 100 if len(baskets_df) else 0.0)
+    phantom_rate = _safe_float(pd.to_numeric(baskets_df.get('phantom_winner'), errors='coerce').fillna(0.0).mean() * 100 if len(baskets_df) else 0.0)
+    median_exposure = _safe_float(exposure_hours.median() if len(exposure_hours) else 0.0)
+    avg_mae = _safe_float(basket_mae.mean() if len(basket_mae) else 0.0)
+    worst_basket = _safe_float(baskets_profit.min() if len(baskets_profit) else 0.0)
+    cost_total = _safe_float(pd.to_numeric(trades_df.get('commission'), errors='coerce').fillna(0.0).sum() + pd.to_numeric(trades_df.get('swap'), errors='coerce').fillna(0.0).sum() if len(trades_df) else 0.0)
+    best_score = _safe_float(pd.to_numeric(optimization_df.get('optimization_score'), errors='coerce').max() if len(optimization_df) else 0.0)
+    robust_pct = _safe_float(
+        pd.to_numeric(optimization_df.get('is_robust'), errors='coerce').fillna(0.0).mean() * 100
+        if len(optimization_df) and 'is_robust' in optimization_df.columns else 0.0
+    )
+
+    def add_finding(severity: str, title: str, evidence: str, mq5_hint: str):
+        findings.append({
+            'severity': severity,
+            'title': title,
+            'evidence': evidence,
+            'mq5_hint': mq5_hint,
+        })
+
+    def add_recommendation(priority: str, title: str, rationale: str, mq5_change: str):
+        recommendations.append({
+            'priority': priority,
+            'title': title,
+            'rationale': rationale,
+            'mq5_change': mq5_change,
+        })
+
+    if net_profit < 0:
+        add_finding(
+            'high',
+            'Resultado líquido negativo',
+            f'Os trades importados somam {net_profit:.2f}, sinal de que a lógica atual do EA ainda não compensa o risco assumido.',
+            'Reveja a lógica de entrada e o escape de baskets perdedores antes de ampliar lote ou níveis.'
+        )
+        add_recommendation(
+            'high',
+            'Adicionar freio de continuidade',
+            'Quando o lucro líquido está negativo, insistir no mesmo grid costuma amplificar drawdown e custo.',
+            'Implemente trava por perda diária/sequencial e bloqueio temporário após baskets de perda forte.'
+        )
+
+    if stop_rate >= 20:
+        add_finding(
+            'high',
+            'Taxa de stop elevada',
+            f'{stop_rate:.1f}% dos baskets bateram stop loss, indicando que o grid está sendo esticado demais em contexto adverso.',
+            'Teste menos níveis, grid mais largo ou filtro de tendência antes de abrir novas camadas.'
+        )
+        add_recommendation(
+            'high',
+            'Reduzir agressividade do grid',
+            'Muitos stops sugerem que o EA está insistindo em recuperação quando o mercado não voltou.',
+            'Diminua `max_levels`, reavalie `grid spacing` e crie stop estrutural por distância/ADX.'
+        )
+
+    if avg_levels >= 4:
+        add_finding(
+            'medium',
+            'Escalonamento frequente do basket',
+            f'A média de {avg_levels:.1f} trades por basket mostra que o EA costuma aprofundar a grade para resolver a operação.',
+            'Vale revisar a regra da segunda/terceira entrada e exigir confirmação antes de aumentar exposição.'
+        )
+        add_recommendation(
+            'medium',
+            'Endurecer gatilho de novas entradas',
+            'Entradas adicionais muito fáceis elevam o risco em movimentos direcionais.',
+            'No MQ5, adicione distância mínima dinâmica, filtro de volatilidade e limite de frequência entre níveis.'
+        )
+
+    if median_exposure >= 8:
+        add_finding(
+            'medium',
+            'Baskets ficam tempo demais em aberto',
+            f'A mediana de sobrevivência está em {median_exposure:.1f}h, o que aumenta swap, risco noturno e stress operacional.',
+            'Teste timeout de basket, redução progressiva de risco ao longo do tempo ou saída parcial.'
+        )
+        add_recommendation(
+            'medium',
+            'Adicionar time stop operacional',
+            'Baskets longos tendem a concentrar risco e depender demais da sorte do retorno à média.',
+            'Crie no EA um limite máximo de horas por basket com redução de lote ou encerramento assistido.'
+        )
+
+    if phantom_rate >= 10:
+        add_finding(
+            'medium',
+            'Presença relevante de phantom winners',
+            f'{phantom_rate:.1f}% dos baskets parecem ter fechado no lucro mesmo após excursão adversa significativa.',
+            'Isso costuma mascarar fragilidade do grid e esconder risco real de cauda.'
+        )
+
+    if avg_mae > max(abs(net_profit) * 0.1, 100):
+        add_finding(
+            'high',
+            'Excursão adversa alta por basket',
+            f'O Basket MAE médio está em {avg_mae:.2f}, sugerindo que o EA sofre bastante antes de recuperar.',
+            'Use sizing mais conservador, spacing adaptativo e regras de desligamento em tendência forte.'
+        )
+
+    if worst_basket < -1000:
+        add_finding(
+            'high',
+            'Cauda de perda pesada',
+            f'O pior basket importado perdeu {worst_basket:.2f}, sinal claro de que eventos extremos ainda machucam demais a estratégia.',
+            'Implemente kill switch por perda do basket e trava de abertura em ADX/tendência forte.'
+        )
+
+    if cost_total < -50:
+        add_finding(
+            'medium',
+            'Custos operacionais relevantes',
+            f'Comissões e swaps somados pesaram {cost_total:.2f} no resultado observado.',
+            'Evite baskets longos e entradas excessivas em horários menos líquidos.'
+        )
+
+    if len(market_df) == 0:
+        add_finding(
+            'medium',
+            'Sem contexto completo de mercado',
+            'Há trades e baskets, mas faltam barras suficientes para cruzar regime, volatilidade e qualidade de entrada.',
+            'Sincronize também market data do MT5 para calibrar filtros de regime no MQ5.'
+        )
+
+    if len(optimization_df) > 0 and robust_pct < 5:
+        add_finding(
+            'medium',
+            'Região otimizada pouco robusta',
+            f'Apenas {robust_pct:.1f}% das configurações ficaram robustas, indicando sensibilidade excessiva a pequenas mudanças.',
+            'No MQ5, prefira parâmetros mais conservadores e filtros estáveis em vez do melhor score isolado.'
+        )
+
+    if len(optimization_df) > 0:
+        add_recommendation(
+            'medium',
+            'Promover parâmetros robustos, não só o campeão',
+            f'O melhor score atual foi {best_score:.1f}, mas a leitura útil para o EA é estabilidade da vizinhança.',
+            'Ao ajustar o MQ5, teste a melhor configuração e também 2 ou 3 vizinhas próximas antes de escolher a final.'
+        )
+
+    if not recommendations:
+        add_recommendation(
+            'medium',
+            'Coletar mais histórico real',
+            'Sem mais dispersão de dados fica difícil separar problema estrutural de ruído amostral.',
+            'Rode mais backtests reais e sincronize períodos diferentes antes da próxima rodada de tuning.'
+        )
+
+    return findings, recommendations
+
+
+def _build_mq5_diagnostics_report(symbol: str):
+    session = get_session(engine)
+    try:
+        df_market = _load_symbol_frame(session, 'market_data', symbol, order_by='timestamp')
+        df_trades = _load_symbol_frame(session, 'trades', symbol, order_by='timestamp_open')
+        df_baskets = _load_symbol_frame(session, 'grid_sequences', symbol, order_by='timestamp_start')
+        try:
+            df_optimization = pd.read_sql(
+                text("SELECT * FROM optimization_results ORDER BY optimization_score DESC"),
+                session.bind
+            )
+        except Exception:
+            df_optimization = pd.DataFrame()
+    finally:
+        session.close()
+
+    if len(df_trades) == 0 and len(df_baskets) == 0:
+        raise ValueError('Não há trades ou baskets suficientes para montar o diagnóstico do MQ5.')
+
+    if len(df_baskets) > 0:
+        df_baskets['timestamp_start'] = pd.to_datetime(df_baskets['timestamp_start'], errors='coerce')
+        df_baskets['timestamp_end'] = pd.to_datetime(df_baskets['timestamp_end'], errors='coerce')
+        df_baskets['exposure_time_hours'] = (
+            df_baskets['timestamp_end'] - df_baskets['timestamp_start']
+        ).dt.total_seconds() / 3600
+
+    trades_profit = pd.to_numeric(df_trades.get('profit'), errors='coerce').fillna(0.0) if len(df_trades) else pd.Series(dtype=float)
+    baskets_profit = pd.to_numeric(df_baskets.get('realized_profit', df_baskets.get('total_profit')), errors='coerce').fillna(0.0) if len(df_baskets) else pd.Series(dtype=float)
+    exposure_hours = pd.to_numeric(df_baskets.get('exposure_time_hours'), errors='coerce').fillna(0.0) if len(df_baskets) else pd.Series(dtype=float)
+
+    if len(df_baskets) > 0 and 'regime_at_start' in df_baskets.columns:
+        regime_breakdown = (
+            df_baskets.assign(realized_profit=baskets_profit)
+            .groupby('regime_at_start')
+            .agg(
+                baskets=('basket_id', 'count'),
+                avg_profit=('realized_profit', 'mean'),
+                median_hours=('exposure_time_hours', 'median'),
+                stop_rate=('hit_stop_loss', 'mean'),
+            )
+            .reset_index()
+            .sort_values('avg_profit')
+        )
+        regime_records = []
+        for _, row in regime_breakdown.iterrows():
+            regime_records.append({
+                'regime': row['regime_at_start'] or 'Unknown',
+                'baskets': _safe_int(row['baskets']),
+                'avg_profit': _safe_float(row['avg_profit']),
+                'median_hours': _safe_float(row['median_hours']),
+                'stop_rate_pct': _safe_float(row['stop_rate'] * 100),
+            })
+    else:
+        regime_records = []
+
+    top_losses = []
+    if len(df_baskets) > 0:
+        worst_df = df_baskets.assign(realized_profit=baskets_profit).sort_values('realized_profit').head(5)
+        for _, row in worst_df.iterrows():
+            top_losses.append({
+                'basket_id': row.get('basket_id'),
+                'profit': _safe_float(row.get('realized_profit')),
+                'mae': _safe_float(row.get('basket_mae')),
+                'levels': _safe_int(row.get('total_trades')),
+                'duration_hours': _safe_float(row.get('exposure_time_hours')),
+                'regime': row.get('regime_at_start') or 'Unknown',
+            })
+
+    parameter_snapshot = {
+        'avg_grid_pips': _safe_float(pd.to_numeric(df_baskets.get('grid_spacing_pips'), errors='coerce').mean() if len(df_baskets) else 0.0),
+        'avg_multiplier': _safe_float(pd.to_numeric(df_baskets.get('lot_multiplier'), errors='coerce').mean() if len(df_baskets) else 0.0),
+        'avg_max_levels_seen': _safe_float(pd.to_numeric(df_baskets.get('total_trades'), errors='coerce').mean() if len(df_baskets) else 0.0),
+        'avg_atr_filter': _safe_float(pd.to_numeric(df_baskets.get('atr_filter'), errors='coerce').mean() if len(df_baskets) else 0.0),
+    }
+
+    best_config = None
+    if len(df_optimization) > 0:
+        best_row = df_optimization.iloc[0]
+        best_config = {
+            'grid_pips': _safe_int(best_row.get('grid_pips')),
+            'multiplier': _safe_float(best_row.get('multiplier')),
+            'atr_filter': _safe_float(best_row.get('atr_filter')),
+            'max_levels': _safe_int(best_row.get('max_levels')),
+            'score': _safe_float(best_row.get('optimization_score')),
+        }
+
+    findings, recommendations = _build_diagnostic_findings(
+        df_trades, df_baskets, df_market, df_optimization
+    )
+
+    report = {
+        'summary': {
+            'symbol': symbol,
+            'market_bars': _safe_int(len(df_market)),
+            'trades': _safe_int(len(df_trades)),
+            'baskets': _safe_int(len(df_baskets)),
+            'net_profit': _safe_float(trades_profit.sum()),
+            'trade_win_rate_pct': _safe_float((trades_profit > 0).mean() * 100 if len(trades_profit) else 0.0),
+            'basket_win_rate_pct': _safe_float((baskets_profit > 0).mean() * 100 if len(baskets_profit) else 0.0),
+            'median_basket_hours': _safe_float(exposure_hours.median() if len(exposure_hours) else 0.0),
+            'stop_rate_pct': _safe_float(pd.to_numeric(df_baskets.get('hit_stop_loss'), errors='coerce').fillna(0.0).mean() * 100 if len(df_baskets) else 0.0),
+            'phantom_winner_pct': _safe_float(pd.to_numeric(df_baskets.get('phantom_winner'), errors='coerce').fillna(0.0).mean() * 100 if len(df_baskets) else 0.0),
+            'avg_basket_mae': _safe_float(pd.to_numeric(df_baskets.get('basket_mae'), errors='coerce').fillna(0.0).mean() if len(df_baskets) else 0.0),
+            'worst_basket_profit': _safe_float(baskets_profit.min() if len(baskets_profit) else 0.0),
+        },
+        'parameter_snapshot': parameter_snapshot,
+        'optimization_context': {
+            'configs_tested': _safe_int(len(df_optimization)),
+            'best_config': best_config,
+        },
+        'regime_breakdown': regime_records,
+        'top_loss_baskets': top_losses,
+        'findings': findings,
+        'recommendations': recommendations,
+    }
+
+    return _json_safe(report)
+
 # =============================================================================
 # Health Check
 # =============================================================================
@@ -598,6 +904,20 @@ def get_dashboard_summary():
         
         return jsonify(_json_safe(summary))
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# MQ5 Diagnostics Endpoint
+# =============================================================================
+
+@app.route('/api/diagnostics/mq5', methods=['GET'])
+def get_mq5_diagnostics():
+    """Retorna diagnóstico operacional para melhorar o EA/MQ5."""
+    try:
+        symbol = request.args.get('symbol', 'XAUUSD')
+        return jsonify(_build_mq5_diagnostics_report(symbol))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

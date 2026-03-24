@@ -86,6 +86,18 @@ def _load_symbol_frame(session, table_name: str, symbol: str, order_by: Optional
         query += f" ORDER BY {order_by}"
     return pd.read_sql(text(query), session.bind, params={"symbol_like": f"{symbol_family}%"})
 
+
+def _build_robustness_landscape_frame(results_df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure robustness endpoints always work from raw optimization results."""
+    if results_df is None or len(results_df) == 0:
+        return pd.DataFrame()
+
+    if {"neighbor_stability_pct", "is_robust"}.issubset(results_df.columns):
+        return results_df.copy()
+
+    landscape_builder = RobustnessLandscape()
+    return landscape_builder.build_landscape(results_df)
+
 # =============================================================================
 # Health Check
 # =============================================================================
@@ -355,9 +367,8 @@ def analyze_robustness():
         if len(optimization_results_cache) == 0:
             return jsonify({'error': 'Resultados de otimização não encontrados'}), 404
         
-        # Construir landscape
         landscape_builder = RobustnessLandscape()
-        landscape = landscape_builder.build_landscape(optimization_results_cache)
+        landscape = _build_robustness_landscape_frame(optimization_results_cache)
         
         # Encontrar zonas robustas
         robust_zones = landscape_builder.find_robust_zones(landscape)
@@ -396,9 +407,10 @@ def get_surface_data():
             optimization_results_cache = pd.read_sql(query, session.bind)
             session.close()
         
-        # Preparar dados para 3D
-        df = optimization_results_cache
-        
+        df = _build_robustness_landscape_frame(optimization_results_cache)
+        if len(df) == 0:
+            return jsonify({'surface_data': []})
+
         # Agrupar por grid e multiplier (média de ATR)
         surface_data = df.groupby(['grid_pips', 'multiplier']).agg({
             'optimization_score': 'mean',

@@ -94,6 +94,14 @@ export default function SurvivalAnalysisPanel() {
     return 'bg-red-500';
   };
 
+  const survivalSummary = analysis ? [
+    `A mediana de sobrevivência está em ${analysis.statistics.median_survival_time.toFixed(1)}h. Em termos práticos, metade dos baskets dura menos do que isso.`,
+    `O time stop sugerido é ${analysis.time_stop_suggestion.suggested_time_stop.toFixed(1)}h, com sobrevivência estimada de ${(analysis.time_stop_suggestion.survival_at_suggestion * 100).toFixed(0)}% nesse ponto.`,
+    analysis.time_stop_suggestion.confidence >= 0.8
+      ? 'A confiança da recomendação está alta. Esse corte de tempo já pode orientar a operação real ou o backtest do EA.'
+      : 'A confiança da recomendação ainda é moderada/baixa. Vale usar esse número como referência inicial, não como regra rígida.',
+  ] : [];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -124,6 +132,24 @@ export default function SurvivalAnalysisPanel() {
           </Button>
         </div>
       </div>
+
+      {analysis && (
+        <Card className="bg-slate-900 border-slate-800 border-l-4 border-l-sky-500">
+          <CardHeader>
+            <CardTitle className="text-lg">What This Means</CardTitle>
+            <CardDescription>Plain-language reading of basket survival</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4">
+              {survivalSummary.map((item, index) => (
+                <div key={index} className="rounded-lg bg-slate-800/80 p-4 text-sm leading-6 text-slate-200">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Statistics Cards */}
       {analysis?.statistics && (

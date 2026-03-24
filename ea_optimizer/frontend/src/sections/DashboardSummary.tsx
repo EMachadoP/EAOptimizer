@@ -82,6 +82,24 @@ export default function DashboardSummary() {
     return <Activity className="w-5 h-5" />;
   };
 
+  const executiveSummary = [
+    stats?.market_data_count
+      ? `${stats.market_data_count} barras de mercado foram carregadas e servem como base para detectar regime e rodar otimização.`
+      : 'Ainda não há barras de mercado suficientes para leitura de regime e testes paramétricos.',
+    stats?.trades_count
+      ? `${stats.trades_count.toLocaleString()} trades foram importados e ${stats?.baskets_count?.toLocaleString() || 0} baskets foram reconstruídos para medir o comportamento do grid.`
+      : 'Ainda não há trades importados para avaliar o comportamento real do EA.',
+    stats?.optimization_configs
+      ? `${stats.optimization_configs.toLocaleString()} combinações já foram testadas; use isso como ranking inicial, não como verdade definitiva.`
+      : 'A otimização ainda não foi executada, então o painel de robustez e os rankings continuam vazios.',
+  ];
+
+  const actionableInsight = regime?.current_regime?.regime_class?.includes('MeanRev')
+    ? 'O regime atual parece mais amigável para estratégias de grid/mean reversion. A leitura mais útil agora é comparar esse regime com o Survival Analysis e conferir se o tempo de exposição continua aceitável.'
+    : regime?.current_regime
+      ? 'O regime atual não é o melhor cenário para grid agressivo. Vale reduzir exposição, limitar níveis ou esperar um contexto mais lateral.'
+      : 'Sem regime válido no momento. Isso normalmente indica falta de dados de mercado suficientes ou análise ainda não concluída.';
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -92,6 +110,28 @@ export default function DashboardSummary() {
 
   return (
     <div className="space-y-6">
+      <Card className="bg-slate-900 border-slate-800 border-l-4 border-l-cyan-500">
+        <CardHeader>
+          <CardTitle className="text-lg">Executive Summary</CardTitle>
+          <CardDescription>What the imported data means right now</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-3">
+              {executiveSummary.map((item, index) => (
+                <div key={index} className="rounded-lg bg-slate-800/80 p-4 text-sm leading-6 text-slate-200">
+                  {item}
+                </div>
+              ))}
+            </div>
+            <div className="rounded-lg bg-cyan-500/10 p-4 text-sm leading-6 text-slate-200 border border-cyan-500/20">
+              <p className="mb-2 font-semibold text-cyan-300">What to do next</p>
+              <p>{actionableInsight}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Status Cards */}
       <div className="grid grid-cols-4 gap-4">
         <Card className="bg-slate-900 border-slate-800">

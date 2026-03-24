@@ -111,6 +111,25 @@ export default function RegimeAnalysisPanel() {
     return <Badge variant="secondary">Neutral</Badge>;
   };
 
+  const latestRegime = regimeData[0]?.regime_class;
+  const bestMatrixRow = profitMatrix.length
+    ? [...profitMatrix].sort((a, b) => b.profit_factor - a.profit_factor)[0]
+    : null;
+  const worstMatrixRow = profitMatrix.length
+    ? [...profitMatrix].sort((a, b) => a.profit_factor - b.profit_factor)[0]
+    : null;
+  const regimeSummary = [
+    latestRegime
+      ? `O regime mais recente foi classificado como ${latestRegime}. Isso descreve o tipo de mercado em que seu EA está operando agora.`
+      : 'Ainda não há uma classificação de regime confiável para exibir.',
+    bestMatrixRow
+      ? `Seu melhor regime histórico no período analisado foi ${bestMatrixRow.regime}, com profit factor ${bestMatrixRow.profit_factor.toFixed(2)} e win rate de ${bestMatrixRow.win_rate.toFixed(1)}%.`
+      : 'Ainda não há profit matrix suficiente para comparar a performance por regime.',
+    worstMatrixRow
+      ? `O regime mais fraco foi ${worstMatrixRow.regime}. Se esse contexto aparecer com frequência, vale reduzir agressividade do grid ou evitar entradas novas.`
+      : 'Sem dados de regime suficientes para apontar o cenário mais arriscado.',
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -128,6 +147,22 @@ export default function RegimeAnalysisPanel() {
           Refresh Analysis
         </Button>
       </div>
+
+      <Card className="bg-slate-900 border-slate-800 border-l-4 border-l-emerald-500">
+        <CardHeader>
+          <CardTitle className="text-lg">How To Read This Screen</CardTitle>
+          <CardDescription>Quick interpretation of regime and profit matrix</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4">
+            {regimeSummary.map((item, index) => (
+              <div key={index} className="rounded-lg bg-slate-800/80 p-4 text-sm leading-6 text-slate-200">
+                {item}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Regime Classification Legend */}
       <Card className="bg-slate-900 border-slate-800">

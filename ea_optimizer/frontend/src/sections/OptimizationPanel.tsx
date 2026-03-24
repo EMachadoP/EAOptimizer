@@ -22,6 +22,7 @@ import {
   RefreshCw,
   CheckCircle
 } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface OptimizationResult {
   config_hash: string;
@@ -148,6 +149,14 @@ export default function OptimizationPanel() {
     }
   };
 
+  const optimizationInsights = bestResult ? [
+    `A melhor combinação encontrada foi grid ${bestResult.best_config.grid_pips} pips, multiplicador ${bestResult.best_config.multiplier.toFixed(2)}x e máximo de ${bestResult.best_config.max_levels} níveis.`,
+    `O score ${bestResult.best_metrics.optimization_score.toFixed(1)} resume retorno e risco juntos. Quanto maior, melhor o equilíbrio entre ganho, drawdown e consistência.`,
+    bestResult.best_metrics.max_drawdown_pct <= 3
+      ? 'O drawdown ficou controlado no melhor cenário encontrado, o que é um bom sinal para continuar investigando essa região de parâmetros.'
+      : 'O melhor cenário ainda carrega drawdown relevante. Antes de usar em conta real, vale confirmar se esse risco cabe no seu perfil.',
+  ] : [];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -178,6 +187,29 @@ export default function OptimizationPanel() {
           </Button>
         </div>
       </div>
+
+      {bestResult && (
+        <Card className="bg-slate-900 border-slate-800 border-l-4 border-l-lime-500">
+          <CardHeader>
+            <CardTitle className="text-lg">Optimization Summary</CardTitle>
+            <CardDescription>How to interpret the winner and ranking</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4">
+              {optimizationInsights.map((item, index) => (
+                <div key={index} className="rounded-lg bg-slate-800/80 p-4 text-sm leading-6 text-slate-200">
+                  {item}
+                </div>
+              ))}
+            </div>
+            <Alert className="mt-4 bg-lime-500/10 border-lime-500/30">
+              <AlertDescription className="text-slate-300">
+                Use this ranking as a shortlist of promising parameter regions. The next check is robustness: a high score alone is not enough if nearby configurations collapse.
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Progress */}
       {isRunning && (

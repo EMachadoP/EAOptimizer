@@ -119,6 +119,15 @@ export default function RobustnessMappingPanel() {
 
   const recommendedConfig = analysis?.recommendation?.recommended_config;
   const expectedPerformance = analysis?.recommendation?.expected_performance;
+  const robustnessSummary = analysis ? [
+    `Foram avaliadas ${analysis.landscape_summary.total_configs} combinações. Cada ponto representa uma combinação de grid e multiplicador; quanto maior o ponto, maior o score.`,
+    analysis.landscape_summary.robust_configs > 0
+      ? `${analysis.landscape_summary.robust_configs} combinações ficaram em zonas robustas. Isso indica parâmetros que continuam razoáveis mesmo quando você mexe um pouco ao redor.`
+      : 'Nenhuma zona robusta foi encontrada. Isso sugere sensibilidade alta: o resultado bom pode desaparecer com pequenas mudanças de parâmetro.',
+    analysis.landscape_summary.avg_stability > 60
+      ? `A estabilidade média de ${analysis.landscape_summary.avg_stability.toFixed(1)}% é aceitável. Procure clusters de pontos verdes/amarelos, não apenas o maior score.`
+      : `A estabilidade média de ${analysis.landscape_summary.avg_stability.toFixed(1)}% está baixa. Neste cenário, priorize consistência antes de usar a melhor configuração isolada.`,
+  ] : [];
 
   return (
     <div className="space-y-6">
@@ -137,6 +146,24 @@ export default function RobustnessMappingPanel() {
           Refresh Analysis
         </Button>
       </div>
+
+      {analysis && (
+        <Card className="bg-slate-900 border-slate-800 border-l-4 border-l-amber-500">
+          <CardHeader>
+            <CardTitle className="text-lg">How To Read Robustness</CardTitle>
+            <CardDescription>What the scatter plot says about parameter stability</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4">
+              {robustnessSummary.map((item, index) => (
+                <div key={index} className="rounded-lg bg-slate-800/80 p-4 text-sm leading-6 text-slate-200">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary Cards */}
       {analysis?.landscape_summary && (

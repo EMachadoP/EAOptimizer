@@ -339,6 +339,51 @@ def test_optimization_engine():
         traceback.print_exc()
         return False
 
+def test_optimization_with_historical_baskets():
+    """Test optimization guided by real basket history"""
+    print("\n" + "="*60)
+    print("TEST: Historical Basket Optimization")
+    print("="*60)
+
+    try:
+        from core.optimization_engine import OptimizationEngine, OptimizationConfig
+
+        market_data = pd.DataFrame({
+            'open': [2000, 2001, 2002, 2001, 2003],
+            'high': [2001, 2002, 2003, 2002, 2004],
+            'low': [1999, 2000, 2001, 2000, 2002],
+            'close': [2000.5, 2001.5, 2002.2, 2001.4, 2003.1],
+            'volume': [100, 110, 90, 120, 95],
+        }, index=pd.date_range('2024-01-01', periods=5, freq='h'))
+
+        baskets = pd.DataFrame({
+            'grid_spacing_pips': [200, 200, 220, 450, 500],
+            'lot_multiplier': [1.2, 1.2, 1.25, 1.5, 1.6],
+            'max_levels': [8, 8, 8, 10, 12],
+            'atr_filter': [1.0, 1.0, 1.1, 1.5, 2.0],
+            'realized_profit': [120, 140, 90, -80, -120],
+            'total_profit': [120, 140, 90, -80, -120],
+            'basket_mae': [25, 30, 35, 110, 160],
+            'total_trades': [3, 4, 3, 6, 7],
+        })
+
+        engine = OptimizationEngine(market_data, historical_baskets=baskets)
+        metrics_near = engine.evaluate_config(OptimizationConfig(200, 1.2, 1.0, 8))
+        metrics_far = engine.evaluate_config(OptimizationConfig(500, 1.6, 2.0, 12))
+
+        assert metrics_near.optimization_score > metrics_far.optimization_score
+        assert metrics_near.total_return > metrics_far.total_return
+
+        print("✓ Historical baskets influence optimization")
+        print(f"  - Near config score: {metrics_near.optimization_score:.2f}")
+        print(f"  - Far config score: {metrics_far.optimization_score:.2f}")
+        return True
+    except Exception as e:
+        print(f"✗ Historical basket optimization test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def test_slippage_model():
     """Test slippage model"""
     print("\n" + "="*60)
@@ -392,6 +437,7 @@ def run_all_tests():
         ("Survival Analysis", test_survival_analysis),
         ("Robustness Mapping", test_robustness_mapping),
         ("Optimization Engine", test_optimization_engine),
+        ("Historical Basket Optimization", test_optimization_with_historical_baskets),
         ("Slippage Model", test_slippage_model),
     ]
     

@@ -176,6 +176,7 @@ class OptimizationEngine:
     def __init__(
         self,
         market_data: pd.DataFrame,
+        historical_baskets: Optional[pd.DataFrame] = None,
         risk_free_rate: float = 0.0,
         objective_function: str = "ulcer_adjusted"
     ):
@@ -186,9 +187,43 @@ class OptimizationEngine:
             objective_function: Função objetivo ('ulcer_adjusted', 'sharpe', 'cvar')
         """
         self.market_data = market_data
+        self.historical_baskets = self._prepare_historical_baskets(historical_baskets)
         self.risk_free_rate = risk_free_rate
         self.objective_function = objective_function
         self.risk_calc = RiskMetricsCalculator()
+
+    def _prepare_historical_baskets(
+        self,
+        baskets: Optional[pd.DataFrame]
+    ) -> Optional[pd.DataFrame]:
+        """Normaliza baskets históricos para uso na otimização guiada pelo EA real."""
+        if baskets is None or len(baskets) == 0:
+            return None
+
+        df = baskets.copy()
+        numeric_columns = [
+            'grid_spacing_pips',
+            'lot_multiplier',
+            'max_levels',
+            'atr_filter',
+            'total_profit',
+            'realized_profit',
+            'basket_mae',
+            'total_trades',
+        ]
+        for column in numeric_columns:
+            if column in df.columns:
+                df[column] = pd.to_numeric(df[column], errors='coerce')
+
+        if 'basket_return' not in df.columns:
+            df['basket_return'] = (
+                df.get('realized_profit')
+                .fillna(df.get('total_profit'))
+                .fillna(0.0)
+            )
+
+        df = df.dropna(subset=['basket_return'])
+        return df if len(df) > 0 else None
     
     def evaluate_config(
         self,
@@ -207,6 +242,11 @@ class OptimizationEngine:
         Returns:
             PerformanceMetrics
         """
+        if self.historical_baskets is not None and len(self.historical_baskets) > 0:
+            metrics = self._evaluate_from_historical_baskets(config)
+            if metrics is not None:
+                return metrics
+
         # Se não temos trades, simular
         if trades is None:
             trades, equity_curve = self._simulate_grid(config)
@@ -280,6 +320,122 @@ class OptimizationEngine:
             return_over_ulcer=return_over_ulcer,
             return_over_cvar=return_over_cvar,
             optimization_score=optimization_score
+        )
+
+    def _evaluate_from_historical_baskets(
+        self,
+        config: OptimizationConfig
+    ) -> Optional[PerformanceMetrics]:
+        """
+        Usa baskets históricos do EA real e prioriza configurações próximas
+        ao comportamento efetivamente observado.
+        """
+        if self.historical_baskets is None or len(self.historical_baskets) == 0:
+            return None
+
+        df = self.historical_baskets.copy()
+        if len(df) == 0:
+            return None
+
+        # Distância paramétrica normalizada. Quanto menor, mais parecida a configuração.
+        distance = np.zeros(len(df), dtype=float)
+
+        if 'grid_spacing_pips' in df.columns:
+            grid_scale = max(float(df['grid_spacing_pips'].std(skipna=True) or 0), 25.0)
+            distance += np.abs(df['grid_spacing_pips'].fillna(config.grid_pips) - config.grid_pips) / grid_scale
+
+        if 'lot_multiplier' in df.columns:
+            mult_scale = max(float(df['lot_multiplier'].std(skipna=True) or 0), 0.05)
+            distance += np.abs(df['lot_multiplier'].fillna(config.multiplier) - config.multiplier) / mult_scale
+
+        if 'max_levels' in df.columns:
+            level_scale = max(float(df['max_levels'].std(skipna=True) or 0), 1.0)
+            distance += np.abs(df['max_levels'].fillna(config.max_levels) - config.max_levels) / level_scale
+
+        if 'atr_filter' in df.columns and df['atr_filter'].notna().any():
+            atr_scale = max(float(df['atr_filter'].std(skipna=True) or 0), 0.2)
+            distance += np.abs(df['atr_filter'].fillna(config.atr_filter) - config.atr_filter) / atr_scale
+
+        df['_distance'] = distance
+        df['_weight'] = np.exp(-distance)
+        df = df.sort_values(['_distance', '_weight'], ascending=[True, False])
+
+        # Usar a vizinhança mais parecida com a configuração candidata.
+        top_n = min(max(30, len(df) // 3), len(df))
+        selected = df.head(top_n).copy()
+        if len(selected) == 0:
+            return None
+
+        weights = selected['_weight'].to_numpy(dtype=float)
+        if np.allclose(weights.sum(), 0):
+            return None
+
+        returns = selected['basket_return'].to_numpy(dtype=float)
+        scaled_returns = returns * (weights / weights.mean())
+        equity_curve = np.cumsum(scaled_returns)
+
+        wins_mask = scaled_returns > 0
+        losses_mask = scaled_returns <= 0
+        wins = scaled_returns[wins_mask]
+        losses = scaled_returns[losses_mask]
+
+        weighted_total_trades = int(round(selected.get('total_trades', pd.Series(np.ones(len(selected)))).fillna(1).sum()))
+        weighted_win_rate = float(weights[wins_mask].sum() / weights.sum() * 100) if weights.sum() > 0 else 0.0
+        avg_win = float(np.average(wins, weights=weights[wins_mask])) if wins_mask.any() else 0.0
+        avg_loss = float(np.average(losses, weights=weights[losses_mask])) if losses_mask.any() else 0.0
+
+        gross_win = float(wins.sum()) if len(wins) > 0 else 0.0
+        gross_loss = float(abs(losses.sum())) if len(losses) > 0 else 0.0
+        profit_factor = gross_win / gross_loss if gross_loss > 0 else float('inf')
+
+        running_peak = np.maximum.accumulate(equity_curve) if len(equity_curve) > 0 else np.array([0.0])
+        drawdowns = running_peak - equity_curve if len(equity_curve) > 0 else np.array([0.0])
+        max_drawdown = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
+        max_dd_pct = float(max_drawdown / running_peak.max() * 100) if running_peak.max() > 0 else 0.0
+
+        ulcer_index = self.risk_calc.calculate_ulcer_index(scaled_returns)
+        cvar_95 = self.risk_calc.calculate_cvar(scaled_returns, 0.95)
+        volatility = float(np.std(scaled_returns) * np.sqrt(252))
+        sharpe = self.risk_calc.calculate_sharpe_ratio(scaled_returns, self.risk_free_rate)
+        sortino = self.risk_calc.calculate_sortino_ratio(scaled_returns, self.risk_free_rate)
+        total_return = float(np.sum(scaled_returns))
+        return_over_ulcer = total_return / ulcer_index if ulcer_index > 0 else 0.0
+        return_over_cvar = total_return / cvar_95 if cvar_95 > 0 else 0.0
+
+        optimization_score = self._calculate_composite_score(
+            total_return=total_return,
+            win_rate=weighted_win_rate,
+            profit_factor=profit_factor,
+            ulcer_index=ulcer_index,
+            cvar_95=cvar_95,
+            max_drawdown_pct=max_dd_pct
+        )
+
+        # Penaliza cenários muito distantes do que já foi observado no EA real.
+        distance_penalty = float(selected['_distance'].mean() * 2.5)
+        optimization_score = max(0.0, optimization_score - distance_penalty)
+
+        start_equity = float(np.abs(scaled_returns[0])) if len(scaled_returns) > 0 else 0.0
+        total_return_pct = (total_return / start_equity * 100) if start_equity > 0 else 0.0
+
+        return PerformanceMetrics(
+            total_return=total_return,
+            total_return_pct=total_return_pct,
+            max_drawdown=max_drawdown,
+            max_drawdown_pct=max_dd_pct,
+            ulcer_index=ulcer_index,
+            cvar_95=cvar_95,
+            volatility=volatility,
+            total_trades=weighted_total_trades,
+            win_rate=weighted_win_rate,
+            profit_factor=profit_factor,
+            avg_win=avg_win,
+            avg_loss=avg_loss,
+            sharpe_ratio=sharpe,
+            sortino_ratio=sortino,
+            return_over_ulcer=return_over_ulcer,
+            return_over_cvar=return_over_cvar,
+            optimization_score=optimization_score,
         )
     
     def optimize(

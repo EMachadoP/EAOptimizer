@@ -458,6 +458,7 @@ def run_optimization():
         # Carregar dados de mercado
         session = get_session(engine)
         df_market = _load_symbol_frame(session, 'market_data', symbol, order_by='timestamp')
+        df_baskets = _load_symbol_frame(session, 'grid_sequences', symbol)
         session.close()
         
         if len(df_market) == 0:
@@ -475,7 +476,8 @@ def run_optimization():
         })
         
         # Executar otimização
-        opt_engine = OptimizationEngine(df_market)
+        historical_baskets = df_baskets if len(df_baskets) > 0 else None
+        opt_engine = OptimizationEngine(df_market, historical_baskets=historical_baskets)
         
         best_config, best_metrics, all_results = opt_engine.optimize(
             param_grid=param_grid,
@@ -483,6 +485,10 @@ def run_optimization():
         )
         
         # Salvar resultados
+        if historical_baskets is not None:
+            all_results['data_source'] = 'historical_baskets'
+        else:
+            all_results['data_source'] = 'simulated_market'
         optimization_results_cache = all_results
         
         # Salvar no banco
@@ -491,6 +497,7 @@ def run_optimization():
         session.close()
         
         return jsonify(_json_safe({
+            'data_source': 'historical_baskets' if historical_baskets is not None else 'simulated_market',
             'best_config': {
                 'grid_pips': best_config.grid_pips,
                 'multiplier': best_config.multiplier,

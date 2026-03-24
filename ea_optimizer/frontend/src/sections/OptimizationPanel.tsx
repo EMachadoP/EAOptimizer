@@ -62,6 +62,7 @@ interface BestMetrics {
 }
 
 interface OptimizationResponse {
+  data_source?: string;
   best_config: BestConfig;
   best_metrics: BestMetrics;
   total_configs_tested: number;
@@ -150,6 +151,9 @@ export default function OptimizationPanel() {
   };
 
   const optimizationInsights = bestResult ? [
+    bestResult.data_source === 'historical_baskets'
+      ? 'Este ranking foi guiado pelos baskets reais importados do seu EA, então está mais próximo do comportamento observado na prática.'
+      : 'Este ranking foi gerado por simulação de mercado. Ele é útil como pista, mas ainda não representa fielmente o seu EA real.',
     `A melhor combinação encontrada foi grid ${bestResult.best_config.grid_pips} pips, multiplicador ${bestResult.best_config.multiplier.toFixed(2)}x e máximo de ${bestResult.best_config.max_levels} níveis.`,
     `O score ${bestResult.best_metrics.optimization_score.toFixed(1)} resume retorno e risco juntos. Quanto maior, melhor o equilíbrio entre ganho, drawdown e consistência.`,
     bestResult.best_metrics.max_drawdown_pct <= 3

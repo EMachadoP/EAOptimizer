@@ -290,13 +290,13 @@ class MT5DataImporter:
         """
         Importa relatório HTML do MT5 Strategy Tester.
 
-        Suporta os formatos padrão de exportação do Strategy Tester:
-        - Tabela "Deals" (formato mais comum)
-        - Tabela "Orders" (fallback)
-        - Diversas variações de encoding (UTF-8, UTF-16)
+        Usa pandas.read_html como motor principal (robusto para encoding,
+        formatação numérica e detecção de tabelas).
+        Suporta cabeçalhos em Inglês e Português.
         """
         from bs4 import BeautifulSoup
 
+        # ---- 1. Ler o HTML com fallback de encoding ----
         try:
             with open(html_path, 'r', encoding='utf-8') as f:
                 html_content = f.read()
@@ -304,144 +304,156 @@ class MT5DataImporter:
             with open(html_path, 'r', encoding='utf-16') as f:
                 html_content = f.read()
 
-        soup = BeautifulSoup(html_content, 'html.parser')
+        # ---- 2. Extrair TODAS as tabelas via pandas ----
+        try:
+            all_dfs = pd.read_html(html_content, flavor='bs4')
+        except Exception:
+            try:
+                all_dfs = pd.read_html(html_content)
+            except Exception as e:
+                raise ValueError(
+                    f"Nenhuma tabela legível encontrada no HTML. "
+                    f"Verifique se o arquivo é um relatório do Strategy Tester. Erro: {e}"
+                )
 
-        # ---- Localizar a tabela de deals/trades ----
-        all_tables = soup.find_all('table')
-        trades_table = None
-        header_cells = []
+        if not all_dfs:
+            raise ValueError("Nenhuma tabela encontrada no relatório HTML.")
 
-        # Procurar tabela que contenha cabeçalhos reconhecidos
-        deal_keywords = {"deal", "ticket", "order", "profit", "time"}
-        for table in all_tables:
-            first_row = table.find('tr')
-            if not first_row:
-                continue
-            cells = first_row.find_all(['th', 'td'])
-            texts = {c.get_text(strip=True).lower() for c in cells}
-            if len(texts & deal_keywords) >= 2:
-                trades_table = table
-                header_cells = cells
-                break
+        # ---- 3. Identificar a tabela de deals/trades ----
+        # Mapa de sinônimos: nome canônico -> possíveis variações (EN + PT)
+        KNOWN_HEADERS = {
+            "deal":       {"deal", "negócio", "negocio", "ticket", "#"},
+            "time":       {"time", "hora", "tempo", "open time", "abertura"},
+            "type":       {"type", "tipo"},
+            "direction":  {"direction", "entry", "direção", "direcao", "entrada"},
+            "volume":     {"volume", "lot", "lots", "lote", "lotes"},
+            "price":      {"price", "preço", "preco"},
+            "symbol":     {"symbol", "símbolo", "simbolo", "ativo"},
+            "order":      {"order", "ordem"},
+            "commission": {"commission", "comissão", "comissao", "fee", "taxa"},
+            "swap":       {"swap"},
+            "profit":     {"profit", "lucro", "resultado"},
+            "balance":    {"balance", "saldo", "balanço", "balanco"},
+        }
 
-        if trades_table is None:
+        # Conjunto plano de todas as keywords conhecidas
+        all_keywords = set()
+        for synonyms in KNOWN_HEADERS.values():
+            all_keywords |= synonyms
+
+        best_df = None
+        best_score = 0
+
+        for candidate in all_dfs:
+            cols_lower = {str(c).strip().lower() for c in candidate.columns}
+            score = len(cols_lower & all_keywords)
+            if score > best_score and len(candidate) > 0:
+                best_score = score
+                best_df = candidate
+
+        if best_df is None or best_score < 2:
+            # Fallback: pegar a maior tabela como candidata
+            best_df = max(all_dfs, key=len) if all_dfs else None
+
+        if best_df is None or len(best_df) == 0:
             raise ValueError(
                 "Tabela de trades/deals não encontrada no relatório HTML. "
                 "Certifique-se de exportar o relatório pelo Strategy Tester do MT5."
             )
 
-        # ---- Mapear colunas pelo nome do cabeçalho ----
-        raw_headers = [c.get_text(strip=True).lower() for c in header_cells]
+        # ---- 4. Normalizar nomes de colunas ----
+        df = best_df.copy()
+        df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # Aliases: chave interna -> possíveis nomes no cabeçalho
-        COLUMN_ALIASES = {
-            "time":       ["time", "open time", "time.1"],
-            "time2":      ["time.1", "close time"],
-            "deal":       ["deal", "ticket", "#", "order"],
-            "symbol":     ["symbol"],
-            "type":       ["type"],
-            "direction":  ["direction", "entry"],
-            "volume":     ["volume", "lot", "lots"],
-            "price":      ["price"],
-            "price2":     ["price.1"],
-            "commission": ["commission", "fee"],
-            "swap":       ["swap"],
-            "profit":     ["profit"],
-        }
+        def _find_col(canonical: str) -> str:
+            """Retorna o nome real da coluna no df que corresponde ao canonical."""
+            synonyms = KNOWN_HEADERS.get(canonical, set())
+            for col in df.columns:
+                if col in synonyms:
+                    return col
+            return ""
 
-        def _find_col_index(aliases: list) -> int:
-            """Retorna o índice da primeira coluna cujo nome casa com os aliases."""
-            for alias in aliases:
-                for idx, h in enumerate(raw_headers):
-                    if alias == h:
-                        return idx
-            return -1
+        col_deal = _find_col("deal")
+        col_time = _find_col("time")
+        col_type = _find_col("type")
+        col_dir = _find_col("direction")
+        col_vol = _find_col("volume")
+        col_price = _find_col("price")
+        col_commission = _find_col("commission")
+        col_swap = _find_col("swap")
+        col_profit = _find_col("profit")
+        col_symbol = _find_col("symbol")
 
-        col_map = {key: _find_col_index(aliases) for key, aliases in COLUMN_ALIASES.items()}
+        # Identificar coluna de ticket/deal
+        if not col_deal:
+            # Tentar a primeira coluna numérica como ticket
+            for c in df.columns:
+                if pd.to_numeric(df[c], errors='coerce').notna().sum() > len(df) * 0.3:
+                    col_deal = c
+                    break
 
-        # Índices obrigatórios mínimos
-        idx_deal = col_map["deal"]
-        idx_time = col_map["time"]
-        idx_profit = col_map["profit"]
-
-        if idx_deal == -1 or idx_time == -1 or idx_profit == -1:
-            raise ValueError(
-                f"Cabeçalhos obrigatórios não encontrados. "
-                f"Cabeçalhos detectados: {raw_headers}"
-            )
-
-        idx_type = col_map["type"]
-        idx_dir = col_map["direction"]
-        idx_vol = col_map["volume"]
-        idx_price = col_map["price"]
-        idx_price2 = col_map["price2"]
-        idx_time2 = col_map["time2"]
-        idx_commission = col_map["commission"]
-        idx_swap = col_map["swap"]
-        idx_symbol = col_map["symbol"]
-
-        # ---- Extrair cada linha de deal ----
+        # ---- 5. Montar DataFrame de trades ----
         trades_data = []
-        data_rows = trades_table.find_all('tr')[1:]  # pular cabeçalho
 
-        def _safe_cell(cells, idx):
-            if idx == -1 or idx >= len(cells):
-                return ""
-            return cells[idx].get_text(strip=True)
-
-        for row in data_rows:
-            cells = row.find_all('td')
-            if len(cells) < 3:
+        for _, row in df.iterrows():
+            # Ticket
+            ticket_val = self._parse_mt5_number(row.get(col_deal)) if col_deal else np.nan
+            if pd.isna(ticket_val) or ticket_val == 0:
                 continue
 
-            raw_deal = _safe_cell(cells, idx_deal)
-            raw_time = _safe_cell(cells, idx_time)
-            raw_profit = _safe_cell(cells, idx_profit)
-
-            # Pular linhas de resumo/balanço (sem ticket numérico)
-            deal_num = self._parse_mt5_number(raw_deal)
-            if pd.isna(deal_num) or deal_num == 0:
-                continue
-
-            # Determinar direção (buy/sell)
-            raw_type = _safe_cell(cells, idx_type).lower()
-            raw_dir = _safe_cell(cells, idx_dir).lower()
+            # Direção
+            raw_type = str(row.get(col_type, "")).lower() if col_type else ""
+            raw_dir = str(row.get(col_dir, "")).lower() if col_dir else ""
             combined = f"{raw_type} {raw_dir}"
 
-            if "buy" in combined:
+            if "buy" in combined or "compra" in combined:
                 direction = "BUY"
-            elif "sell" in combined:
+            elif "sell" in combined or "venda" in combined:
                 direction = "SELL"
             else:
-                # Pular linhas de balanço/depósito/saque
-                continue
+                continue  # pular balanço/depósito/saque
 
-            # Parse de tempo
+            # Tempo
+            raw_time = row.get(col_time) if col_time else None
             try:
-                time_open = pd.to_datetime(raw_time, dayfirst=False, errors='coerce')
+                time_open = pd.to_datetime(raw_time, errors='coerce')
             except Exception:
                 time_open = pd.NaT
-
             if pd.isna(time_open):
                 continue
 
-            raw_time2 = _safe_cell(cells, idx_time2) if idx_time2 != -1 else ""
-            try:
-                time_close = pd.to_datetime(raw_time2, dayfirst=False, errors='coerce') if raw_time2 else time_open
-            except Exception:
-                time_close = time_open
+            # Buscar segundo tempo (close) se existir coluna duplicada
+            time_close = time_open
+            for c in df.columns:
+                if c != col_time and any(kw in c for kw in ["time", "hora", "tempo"]):
+                    try:
+                        tc = pd.to_datetime(row.get(c), errors='coerce')
+                        if not pd.isna(tc):
+                            time_close = tc
+                    except Exception:
+                        pass
+                    break
 
-            # Parse numéricos seguros
-            volume = self._parse_mt5_number(_safe_cell(cells, idx_vol))
-            price_open = self._parse_mt5_number(_safe_cell(cells, idx_price))
-            price_close = self._parse_mt5_number(_safe_cell(cells, idx_price2)) if idx_price2 != -1 else price_open
-            commission = self._parse_mt5_number(_safe_cell(cells, idx_commission))
-            swap_val = self._parse_mt5_number(_safe_cell(cells, idx_swap))
-            profit_val = self._parse_mt5_number(raw_profit)
-            deal_symbol = _safe_cell(cells, idx_symbol) if idx_symbol != -1 else ""
+            # Numéricos
+            volume = self._parse_mt5_number(row.get(col_vol)) if col_vol else 0.01
+            price_open = self._parse_mt5_number(row.get(col_price)) if col_price else 0.0
+
+            # Buscar segundo preço (close) se existir coluna duplicada
+            price_close = price_open
+            for c in df.columns:
+                if c != col_price and any(kw in c for kw in ["price", "preço", "preco"]):
+                    val = self._parse_mt5_number(row.get(c))
+                    if not pd.isna(val):
+                        price_close = val
+                    break
+
+            commission = self._parse_mt5_number(row.get(col_commission)) if col_commission else 0.0
+            swap_val = self._parse_mt5_number(row.get(col_swap)) if col_swap else 0.0
+            profit_val = self._parse_mt5_number(row.get(col_profit)) if col_profit else 0.0
+            deal_symbol = str(row.get(col_symbol, "")).strip() if col_symbol else ""
 
             trade = {
-                'ticket': int(deal_num),
+                'ticket': int(ticket_val),
                 'time_open': time_open,
                 'time_close': time_close if not pd.isna(time_close) else time_open,
                 'direction': direction,
@@ -456,32 +468,33 @@ class MT5DataImporter:
             }
             trades_data.append(trade)
 
-        df = pd.DataFrame(trades_data)
+        result_df = pd.DataFrame(trades_data)
 
-        if len(df) > 0:
-            df["basket_id"] = self._build_basket_ids(df)
+        if len(result_df) > 0:
+            result_df["basket_id"] = self._build_basket_ids(result_df)
 
             output_columns = [
                 "ticket", "basket_id", "time_open", "time_close",
                 "symbol", "direction", "volume", "price_open",
                 "price_close", "slippage_pips", "commission", "swap", "profit",
             ]
-            df = df[[c for c in output_columns if c in df.columns]].rename(
+            result_df = result_df[[c for c in output_columns if c in result_df.columns]].rename(
                 columns={
                     "time_open": "timestamp_open",
                     "time_close": "timestamp_close",
                 }
             )
 
-            self._save_trades(df)
+            self._save_trades(result_df)
 
-        # Extrair métricas do relatório
+        # Extrair métricas do relatório (usa BeautifulSoup)
+        soup = BeautifulSoup(html_content, 'html.parser')
         metrics = self._extract_metrics_from_html(soup)
 
         return {
-            'trades': df,
+            'trades': result_df,
             'metrics': metrics,
-            'total_trades': len(df)
+            'total_trades': len(result_df)
         }
     
     def import_from_mt5_terminal(

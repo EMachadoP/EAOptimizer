@@ -349,8 +349,38 @@ class MT5DataImporter:
         
         df = pd.DataFrame(trades_data)
         
-        # Salvar no banco
-        self._save_trades(df)
+        if len(df) > 0:
+            df["ticket"] = df["ticket"].astype(int)
+            df["direction"] = np.where(df["type"] == 0, "BUY", "SELL")
+            df["slippage"] = 0.0
+            
+            df["basket_id"] = self._build_basket_ids(df)
+            
+            output_columns = [
+                "ticket",
+                "basket_id",
+                "time_open",
+                "time_close",
+                "symbol",
+                "direction",
+                "volume",
+                "price_open",
+                "price_close",
+                "slippage",
+                "commission",
+                "swap",
+                "profit",
+            ]
+            df = df[output_columns].rename(
+                columns={
+                    "time_open": "timestamp_open",
+                    "time_close": "timestamp_close",
+                    "slippage": "slippage_pips",
+                }
+            )
+            
+            # Salvar no banco
+            self._save_trades(df)
         
         # Extrair métricas do relatório
         metrics = self._extract_metrics_from_html(soup)

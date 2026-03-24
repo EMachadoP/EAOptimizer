@@ -213,12 +213,15 @@ class OptimizationEngine:
             if column in df.columns:
                 df[column] = pd.to_numeric(df[column], errors='coerce')
 
-        if 'basket_return' not in df.columns:
-            df['basket_return'] = (
-                df.get('realized_profit')
-                .fillna(df.get('total_profit'))
-                .fillna(0.0)
-            )
+        realized = pd.to_numeric(df['realized_profit'], errors='coerce') if 'realized_profit' in df.columns else pd.Series(np.nan, index=df.index)
+        total = pd.to_numeric(df['total_profit'], errors='coerce') if 'total_profit' in df.columns else pd.Series(np.nan, index=df.index)
+
+        if 'basket_return' in df.columns:
+            basket_return = pd.to_numeric(df['basket_return'], errors='coerce')
+        else:
+            basket_return = pd.Series(np.nan, index=df.index, dtype=float)
+
+        df['basket_return'] = basket_return.fillna(realized).fillna(total)
 
         df = df.dropna(subset=['basket_return'])
         return df if len(df) > 0 else None

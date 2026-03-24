@@ -100,7 +100,10 @@ export default function OptimizationPanel() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Nao foi possivel executar a otimizacao real.');
+        setError(
+          data.error ||
+          'Nao foi possivel executar a otimizacao real. Verifique se os baskets reais foram importados corretamente.'
+        );
         return;
       }
 
@@ -111,7 +114,7 @@ export default function OptimizationPanel() {
       fetchResults();
     } catch (e) {
       console.error('Error running optimization:', e);
-      setError('Falha ao executar a otimizacao real do EA.');
+      setError('Falha ao executar a otimizacao real do EA. Se o backend estiver online, confira o CORS e a base real importada.');
     } finally {
       setIsRunning(false);
     }

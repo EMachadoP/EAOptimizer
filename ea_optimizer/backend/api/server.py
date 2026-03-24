@@ -49,6 +49,7 @@ def get_allowed_origins():
     return [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://ea-optimizer.vercel.app",
         "https://ea-optimizer-h2f54hu0z-eldons-projects-3194802d.vercel.app",
     ]
 
@@ -789,6 +790,10 @@ def run_optimization():
             }), 400
 
         opt_engine = OptimizationEngine(df_market, historical_baskets=historical_baskets)
+        if opt_engine.historical_baskets is None or len(opt_engine.historical_baskets) < 10:
+            return jsonify({
+                'error': 'Os baskets foram encontrados, mas não têm lucro realizado/total utilizável para a otimização. Reimporte os trades reais ou regenere os baskets.'
+            }), 400
         
         best_config, best_metrics, all_results = opt_engine.optimize(
             param_grid=param_grid,

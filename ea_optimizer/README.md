@@ -64,8 +64,13 @@ cd ..
 ```
 
 Observação importante:
-- o pacote `MetaTrader5` agora faz parte das dependências oficiais
+- o backend hospedado no Render usa apenas as dependências multiplataforma do `requirements.txt`
 - a coleta direta do terminal MT5 exige Windows com o MetaTrader 5 aberto e logado
+- na máquina local do MT5, instale também:
+
+```bash
+pip install MetaTrader5==5.0.5640
+```
 
 ### 3. Instale as dependências do frontend
 

@@ -19,13 +19,14 @@ lxml==6.0.2
 python-dateutil==2.9.0
 pytz==2025.2
 requests==2.32.3
-MetaTrader5==5.0.5640
 
 # Testing
 pytest==9.0.2
 pytest-cov==7.0.0
 
-# Optional integrations and notebooks
+# Optional Windows-only integrations and notebooks
+# Install locally on the MT5 machine when you want direct terminal sync:
+# MetaTrader5==5.0.5640
 # jupyter
 # ipython
 # matplotlib

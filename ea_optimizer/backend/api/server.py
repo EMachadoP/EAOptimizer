@@ -507,7 +507,16 @@ def import_trades():
         else:
             df = importer.import_trades_from_csv(csv_path, symbol)
         importer.disconnect()
-        
+
+        if len(df) == 0:
+            return jsonify({
+                'error': (
+                    'Nenhum trade válido encontrado no arquivo. '
+                    'Verifique se o CSV/HTML contém trades fechados com colunas '
+                    'ticket, time_open, time_close, type (buy/sell), volume, price_open, price_close, profit.'
+                )
+            }), 400
+
         return jsonify({
             'success': True,
             'records_imported': len(df),

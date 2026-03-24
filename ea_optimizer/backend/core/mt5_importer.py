@@ -189,6 +189,13 @@ class MT5DataImporter:
 
         if "type" in trades_df.columns:
             trades_df["type"] = trades_df["type"].astype(str).str.strip().str.lower()
+            # Map numeric MT5 types and Portuguese values to canonical buy/sell
+            _type_map = {
+                "0": "buy", "1": "sell",
+                "compra": "buy", "venda": "sell",
+                "buy": "buy", "sell": "sell",
+            }
+            trades_df["type"] = trades_df["type"].map(_type_map).fillna(trades_df["type"])
 
         if "symbol" not in trades_df.columns:
             trades_df["symbol"] = fallback_symbol
@@ -201,6 +208,11 @@ class MT5DataImporter:
             if column not in trades_df.columns:
                 raise ValueError(f"Coluna obrigatória {column} não encontrada no CSV")
 
+        total_before_filter = len(trades_df)
+        print(f"[mt5_importer] Colunas detectadas: {list(trades_df.columns)}")
+        print(f"[mt5_importer] Total de linhas antes do filtro: {total_before_filter}")
+        print(f"[mt5_importer] Valores únicos em 'type': {trades_df['type'].unique().tolist()}")
+
         closed_mask = (
             trades_df["ticket"].notna()
             & trades_df["time_open"].notna()
@@ -211,6 +223,7 @@ class MT5DataImporter:
             & trades_df["price_close"].notna()
         )
         trades_df = trades_df.loc[closed_mask].copy()
+        print(f"[mt5_importer] Trades válidos após filtro: {len(trades_df)} de {total_before_filter}")
 
         if len(trades_df) == 0:
             return pd.DataFrame()
@@ -470,22 +483,32 @@ class MT5DataImporter:
 
         result_df = pd.DataFrame(trades_data)
 
-        if len(result_df) > 0:
-            result_df["basket_id"] = self._build_basket_ids(result_df)
+        print(f"[mt5_importer] HTML report: {len(result_df)} trades extraídos de {len(df)} linhas")
+        print(f"[mt5_importer] Colunas da tabela HTML: {list(df.columns)}")
 
-            output_columns = [
-                "ticket", "basket_id", "time_open", "time_close",
-                "symbol", "direction", "volume", "price_open",
-                "price_close", "slippage_pips", "commission", "swap", "profit",
-            ]
-            result_df = result_df[[c for c in output_columns if c in result_df.columns]].rename(
-                columns={
-                    "time_open": "timestamp_open",
-                    "time_close": "timestamp_close",
-                }
+        if len(result_df) == 0:
+            col_info = ', '.join(df.columns[:10])
+            raise ValueError(
+                f"Nenhum trade válido encontrado no relatório HTML. "
+                f"Tabela detectada com {len(df)} linhas e colunas: [{col_info}]. "
+                f"Verifique se o arquivo é um relatório do Strategy Tester com trades fechados."
             )
 
-            self._save_trades(result_df)
+        result_df["basket_id"] = self._build_basket_ids(result_df)
+
+        output_columns = [
+            "ticket", "basket_id", "time_open", "time_close",
+            "symbol", "direction", "volume", "price_open",
+            "price_close", "slippage_pips", "commission", "swap", "profit",
+        ]
+        result_df = result_df[[c for c in output_columns if c in result_df.columns]].rename(
+            columns={
+                "time_open": "timestamp_open",
+                "time_close": "timestamp_close",
+            }
+        )
+
+        self._save_trades(result_df)
 
         # Extrair métricas do relatório (usa BeautifulSoup)
         soup = BeautifulSoup(html_content, 'html.parser')

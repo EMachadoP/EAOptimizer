@@ -15,10 +15,8 @@ Métricas de Performance:
 
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Callable
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
-from scipy import stats
-from scipy.optimize import minimize
 import hashlib
 import json
 
@@ -247,9 +245,11 @@ class OptimizationEngine:
             if metrics is not None:
                 return metrics
 
-        # Se não temos trades, simular
         if trades is None:
-            trades, equity_curve = self._simulate_grid(config)
+            raise ValueError(
+                "OptimizationEngine requires real historical baskets or real trades. "
+                "Simulated evaluation has been removed."
+            )
         
         if len(trades) == 0:
             return self._empty_metrics()
@@ -516,46 +516,6 @@ class OptimizationEngine:
         
         return best_config, best_metrics, pd.DataFrame(results)
     
-    def _simulate_grid(
-        self,
-        config: OptimizationConfig
-    ) -> Tuple[pd.DataFrame, np.ndarray]:
-        """
-        Simula operação do grid em dados históricos
-        
-        Simplificado - na implementação real, usar TradeReconstructionEngine
-        """
-        # Simulação básica para demonstração
-        np.random.seed(42)
-        
-        n_trades = 100
-        
-        # Simular trades com características do grid
-        win_prob = 0.55  # Grid tende a ter win rate > 50%
-        avg_win = 50 * config.grid_pips / 300  # Ajustado pelo grid spacing
-        avg_loss = 45 * config.multiplier / 1.3  # Ajustado pelo multiplier
-        
-        trades_data = []
-        equity = [10000]  # Capital inicial
-        
-        for i in range(n_trades):
-            is_win = np.random.random() < win_prob
-            
-            if is_win:
-                profit = np.random.normal(avg_win, avg_win * 0.3)
-            else:
-                profit = -np.random.normal(avg_loss, avg_loss * 0.3)
-            
-            trades_data.append({
-                'trade_id': i,
-                'profit': profit,
-                'timestamp': pd.Timestamp.now() + pd.Timedelta(hours=i)
-            })
-            
-            equity.append(equity[-1] + profit)
-        
-        return pd.DataFrame(trades_data), np.array(equity)
-    
     def _calculate_composite_score(
         self,
         total_return: float,
@@ -619,93 +579,3 @@ class OptimizationEngine:
             return_over_cvar=0.0,
             optimization_score=0.0
         )
-
-class MonteCarloSimulator:
-    """
-    FR-07: Parameter Simulator
-    Simulação Monte Carlo de parâmetros Grid/Mult/ATR
-    """
-    
-    def __init__(self, optimization_engine: OptimizationEngine):
-        self.engine = optimization_engine
-    
-    def simulate(
-        self,
-        base_config: OptimizationConfig,
-        n_simulations: int = 1000,
-        param_variations: Optional[Dict[str, Tuple[float, float]]] = None
-    ) -> pd.DataFrame:
-        """
-        Simula variações de parâmetros via Monte Carlo
-        
-        Args:
-            base_config: Configuração base
-            n_simulations: Número de simulações
-            param_variations: Dict com (min, max) de variação para cada parâmetro
-        
-        Returns:
-            DataFrame com resultados das simulações
-        """
-        if param_variations is None:
-            param_variations = {
-                'grid_pips': (0.9, 1.1),  # ±10%
-                'multiplier': (0.95, 1.05),  # ±5%
-                'atr_filter': (0.9, 1.1)  # ±10%
-            }
-        
-        results = []
-        
-        for i in range(n_simulations):
-            # Gerar configuração variada
-            varied_config = OptimizationConfig(
-                grid_pips=int(base_config.grid_pips * np.random.uniform(*param_variations['grid_pips'])),
-                multiplier=base_config.multiplier * np.random.uniform(*param_variations['multiplier']),
-                atr_filter=base_config.atr_filter * np.random.uniform(*param_variations['atr_filter']),
-                max_levels=base_config.max_levels
-            )
-            
-            # Avaliar
-            metrics = self.engine.evaluate_config(varied_config)
-            
-            results.append({
-                'simulation_id': i,
-                'grid_pips': varied_config.grid_pips,
-                'multiplier': varied_config.multiplier,
-                'atr_filter': varied_config.atr_filter,
-                'total_return': metrics.total_return,
-                'ulcer_index': metrics.ulcer_index,
-                'cvar_95': metrics.cvar_95,
-                'optimization_score': metrics.optimization_score
-            })
-        
-        return pd.DataFrame(results)
-    
-    def analyze_sensitivity(
-        self,
-        mc_results: pd.DataFrame
-    ) -> Dict:
-        """
-        Analisa sensibilidade dos parâmetros
-        
-        Returns:
-            Dict com análise de sensibilidade
-        """
-        return {
-            'return_stats': {
-                'mean': mc_results['total_return'].mean(),
-                'std': mc_results['total_return'].std(),
-                'min': mc_results['total_return'].min(),
-                'max': mc_results['total_return'].max(),
-                'var_95': mc_results['total_return'].quantile(0.05)
-            },
-            'score_stats': {
-                'mean': mc_results['optimization_score'].mean(),
-                'std': mc_results['optimization_score'].std(),
-                'prob_positive': (mc_results['optimization_score'] > 0).mean()
-            },
-            'correlations': {
-                'grid_vs_return': mc_results[['grid_pips', 'total_return']].corr().iloc[0, 1],
-                'multiplier_vs_return': mc_results[['multiplier', 'total_return']].corr().iloc[0, 1],
-                'atr_vs_return': mc_results[['atr_filter', 'total_return']].corr().iloc[0, 1]
-            }
-        }

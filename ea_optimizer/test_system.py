@@ -276,7 +276,7 @@ def test_robustness_mapping():
         return False
 
 def test_optimization_engine():
-    """Test optimization engine"""
+    """Test optimization engine with real-trade requirement"""
     print("\n" + "="*60)
     print("TEST: Optimization Engine")
     print("="*60)
@@ -316,7 +316,7 @@ def test_optimization_engine():
         print(f"  - CVaR 95%: ${cvar:.2f}")
         print(f"  - Sharpe Ratio: {sharpe:.2f}")
         
-        # Test optimization
+        # Test optimization with real trades
         engine = OptimizationEngine(market_data)
         config = OptimizationConfig(
             grid_pips=300,
@@ -324,13 +324,24 @@ def test_optimization_engine():
             atr_filter=1.5,
             max_levels=10
         )
-        
-        metrics = engine.evaluate_config(config)
-        
+
+        trades = pd.DataFrame({
+            'profit': [120, -60, 80, -40, 110, -20, 70],
+            'timestamp': pd.date_range('2024-01-01', periods=7, freq='h')
+        })
+
+        metrics = engine.evaluate_config(config, trades=trades)
+
         print(f"✓ Config evaluated")
         print(f"  - Total Return: ${metrics.total_return:.2f}")
         print(f"  - Profit Factor: {metrics.profit_factor:.2f}")
         print(f"  - Optimization Score: {metrics.optimization_score:.1f}")
+
+        try:
+            engine.evaluate_config(config)
+            raise AssertionError("Expected ValueError when no real inputs are provided")
+        except ValueError:
+            print("✓ Engine correctly rejects simulated evaluation paths")
         
         return True
     except Exception as e:

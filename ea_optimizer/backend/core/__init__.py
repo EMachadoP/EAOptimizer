@@ -42,8 +42,7 @@ from .optimization_engine import (
     OptimizationEngine,
     OptimizationConfig,
     PerformanceMetrics,
-    RiskMetricsCalculator,
-    MonteCarloSimulator
+    RiskMetricsCalculator
 )
 
 from .slippage_model import (
@@ -86,7 +85,6 @@ __all__ = [
     'OptimizationConfig',
     'PerformanceMetrics',
     'RiskMetricsCalculator',
-    'MonteCarloSimulator',
     
     # Slippage
     'SlippageModel',

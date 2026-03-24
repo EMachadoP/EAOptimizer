@@ -16,6 +16,7 @@ import json
 import tempfile
 from sqlalchemy import text
 from typing import Optional
+import math
 
 # Adicionar parent ao path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -97,6 +98,22 @@ def _build_robustness_landscape_frame(results_df: pd.DataFrame) -> pd.DataFrame:
 
     landscape_builder = RobustnessLandscape()
     return landscape_builder.build_landscape(results_df)
+
+
+def _json_safe(value):
+    """Recursively replace NaN/inf with None so Flask emits valid JSON."""
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+    return value
 
 # =============================================================================
 # Health Check
@@ -235,7 +252,7 @@ def analyze_regime():
         
         session.close()
         
-        return jsonify({
+        return jsonify(_json_safe({
             'current_regime': {
                 'regime_class': str(latest['regime_class']),
                 'hurst_exponent': float(latest['hurst_exponent']) if not pd.isna(latest['hurst_exponent']) else None,
@@ -245,7 +262,7 @@ def analyze_regime():
             },
             'regime_distribution': regime_stats.to_dict('records'),
             'interpretation': regime_engine.hurst_calc.interpret(latest['hurst_exponent']) if not pd.isna(latest['hurst_exponent']) else 'Unknown'
-        })
+        }))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -279,10 +296,10 @@ def get_profit_matrix():
         
         session.close()
         
-        return jsonify({
+        return jsonify(_json_safe({
             'profit_matrix': regime_matrix.to_dict('records'),
             'insights': insights
-        })
+        }))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -326,7 +343,7 @@ def analyze_survival():
         
         session.close()
         
-        return jsonify({
+        return jsonify(_json_safe({
             'survival_curve': {
                 'time_hours': curve.time_hours.tolist(),
                 'survival_probability': curve.survival_prob.tolist(),
@@ -340,7 +357,7 @@ def analyze_survival():
                 'regime_filter': curve.regime_filter
             },
             'time_stop_suggestion': suggestion
-        })
+        }))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -380,7 +397,7 @@ def analyze_robustness():
         current_config = data.get('current_config')
         recommendation = landscape_builder.generate_recommendation(landscape, current_config)
         
-        return jsonify({
+        return jsonify(_json_safe({
             'landscape_summary': {
                 'total_configs': len(landscape),
                 'robust_configs': len(landscape[landscape['is_robust'] == True]),
@@ -390,7 +407,7 @@ def analyze_robustness():
             'robust_zones': robust_zones[:5],
             'overfitting_warnings': overfitting_peaks[:5],
             'recommendation': recommendation
-        })
+        }))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -418,9 +435,9 @@ def get_surface_data():
             'is_robust': 'first'
         }).reset_index()
         
-        return jsonify({
+        return jsonify(_json_safe({
             'surface_data': surface_data.to_dict('records')
-        })
+        }))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -473,7 +490,7 @@ def run_optimization():
         all_results.to_sql('optimization_results', session.bind, if_exists='replace', index=False)
         session.close()
         
-        return jsonify({
+        return jsonify(_json_safe({
             'best_config': {
                 'grid_pips': best_config.grid_pips,
                 'multiplier': best_config.multiplier,
@@ -491,7 +508,7 @@ def run_optimization():
                 'optimization_score': best_metrics.optimization_score
             },
             'total_configs_tested': len(all_results)
-        })
+        }))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -517,13 +534,13 @@ def get_optimization_results():
         
         results_page = optimization_results_cache.iloc[start:end]
         
-        return jsonify({
+        return jsonify(_json_safe({
             'results': results_page.to_dict('records'),
             'total': len(optimization_results_cache),
             'page': page,
             'per_page': per_page,
             'total_pages': (len(optimization_results_cache) + per_page - 1) // per_page
-        })
+        }))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -569,7 +586,7 @@ def get_dashboard_summary():
         
         session.close()
         
-        return jsonify(summary)
+        return jsonify(_json_safe(summary))
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

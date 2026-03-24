@@ -41,12 +41,12 @@ interface OverfittingPeak {
 }
 
 interface RobustnessRecommendation {
-  recommended_config: {
+  recommended_config?: {
     grid_pips: number;
     multiplier: number;
     atr_filter: number;
   };
-  expected_performance: {
+  expected_performance?: {
     optimization_score: number;
     stability: number;
   };
@@ -116,6 +116,9 @@ export default function RobustnessMappingPanel() {
     if (stability >= 60) return '#eab308';
     return '#ef4444';
   };
+
+  const recommendedConfig = analysis?.recommendation?.recommended_config;
+  const expectedPerformance = analysis?.recommendation?.expected_performance;
 
   return (
     <div className="space-y-6">
@@ -380,7 +383,7 @@ export default function RobustnessMappingPanel() {
       )}
 
       {/* Recommendation */}
-      {analysis?.recommendation && (
+      {analysis?.recommendation && recommendedConfig && expectedPerformance && (
         <Card className="bg-slate-900 border-slate-800 border-l-4 border-l-blue-500">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
@@ -394,21 +397,21 @@ export default function RobustnessMappingPanel() {
                 <div className="p-4 bg-slate-800 rounded-lg text-center">
                   <p className="text-sm text-slate-400">Grid Spacing</p>
                   <p className="text-3xl font-bold text-white">
-                    {analysis.recommendation.recommended_config.grid_pips}
+                    {recommendedConfig.grid_pips}
                   </p>
                   <p className="text-xs text-slate-500">pips</p>
                 </div>
                 <div className="p-4 bg-slate-800 rounded-lg text-center">
                   <p className="text-sm text-slate-400">Lot Multiplier</p>
                   <p className="text-3xl font-bold text-white">
-                    {analysis.recommendation.recommended_config.multiplier.toFixed(2)}
+                    {recommendedConfig.multiplier.toFixed(2)}
                   </p>
                   <p className="text-xs text-slate-500">x</p>
                 </div>
                 <div className="p-4 bg-slate-800 rounded-lg text-center">
                   <p className="text-sm text-slate-400">ATR Filter</p>
                   <p className="text-3xl font-bold text-white">
-                    {analysis.recommendation.recommended_config.atr_filter.toFixed(1)}
+                    {recommendedConfig.atr_filter.toFixed(1)}
                   </p>
                   <p className="text-xs text-slate-500">x ATR</p>
                 </div>
@@ -418,13 +421,13 @@ export default function RobustnessMappingPanel() {
                 <div className="p-4 bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-400">Expected Score</p>
                   <p className="text-2xl font-bold text-green-400">
-                    {analysis.recommendation.expected_performance.optimization_score.toFixed(1)}
+                    {expectedPerformance.optimization_score.toFixed(1)}
                   </p>
                 </div>
                 <div className="p-4 bg-slate-800 rounded-lg">
                   <p className="text-sm text-slate-400">Stability</p>
                   <p className="text-2xl font-bold text-blue-400">
-                    {analysis.recommendation.expected_performance.stability.toFixed(1)}%
+                    {expectedPerformance.stability.toFixed(1)}%
                   </p>
                 </div>
               </div>

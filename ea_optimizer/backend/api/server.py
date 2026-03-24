@@ -475,8 +475,13 @@ def run_optimization():
             'max_levels': [5, 8, 10, 12]
         })
         
-        # Executar otimização
+        # Em produção, a otimização só deve usar evidência real do EA.
         historical_baskets = df_baskets if len(df_baskets) > 0 else None
+        if historical_baskets is None or len(historical_baskets) < 10:
+            return jsonify({
+                'error': 'A otimização real exige baskets históricos suficientes do EA. Importe trades reais até gerar pelo menos 10 baskets.'
+            }), 400
+
         opt_engine = OptimizationEngine(df_market, historical_baskets=historical_baskets)
         
         best_config, best_metrics, all_results = opt_engine.optimize(
@@ -485,10 +490,7 @@ def run_optimization():
         )
         
         # Salvar resultados
-        if historical_baskets is not None:
-            all_results['data_source'] = 'historical_baskets'
-        else:
-            all_results['data_source'] = 'simulated_market'
+        all_results['data_source'] = 'historical_baskets'
         optimization_results_cache = all_results
         
         # Salvar no banco
@@ -497,7 +499,8 @@ def run_optimization():
         session.close()
         
         return jsonify(_json_safe({
-            'data_source': 'historical_baskets' if historical_baskets is not None else 'simulated_market',
+            'data_source': 'historical_baskets',
+            'historical_basket_count': int(len(historical_baskets)),
             'best_config': {
                 'grid_pips': best_config.grid_pips,
                 'multiplier': best_config.multiplier,

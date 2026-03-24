@@ -63,6 +63,7 @@ interface BestMetrics {
 
 interface OptimizationResponse {
   data_source?: string;
+  historical_basket_count?: number;
   best_config: BestConfig;
   best_metrics: BestMetrics;
   total_configs_tested: number;
@@ -74,10 +75,12 @@ export default function OptimizationPanel() {
   const [results, setResults] = useState<OptimizationResult[]>([]);
   const [bestResult, setBestResult] = useState<OptimizationResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const runOptimization = async () => {
     setIsRunning(true);
     setProgress(0);
+    setError(null);
     
     try {
       const res = await fetch(apiUrl('/api/optimization/run'), {
@@ -94,16 +97,21 @@ export default function OptimizationPanel() {
         })
       });
 
-      if (res.ok) {
-        const data: OptimizationResponse = await res.json();
-        setBestResult(data);
-        setProgress(100);
-        
-        // Fetch all results
-        fetchResults();
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || 'Nao foi possivel executar a otimizacao real.');
+        return;
       }
+
+      setBestResult(data as OptimizationResponse);
+      setProgress(100);
+      
+      // Fetch all results
+      fetchResults();
     } catch (e) {
       console.error('Error running optimization:', e);
+      setError('Falha ao executar a otimizacao real do EA.');
     } finally {
       setIsRunning(false);
     }
@@ -151,9 +159,7 @@ export default function OptimizationPanel() {
   };
 
   const optimizationInsights = bestResult ? [
-    bestResult.data_source === 'historical_baskets'
-      ? 'Este ranking foi guiado pelos baskets reais importados do seu EA, então está mais próximo do comportamento observado na prática.'
-      : 'Este ranking foi gerado por simulação de mercado. Ele é útil como pista, mas ainda não representa fielmente o seu EA real.',
+    `Este ranking foi guiado pelos baskets reais importados do seu EA. Nesta execucao foram usados ${bestResult.historical_basket_count ?? 0} baskets historicos.`,
     `A melhor combinação encontrada foi grid ${bestResult.best_config.grid_pips} pips, multiplicador ${bestResult.best_config.multiplier.toFixed(2)}x e máximo de ${bestResult.best_config.max_levels} níveis.`,
     `O score ${bestResult.best_metrics.optimization_score.toFixed(1)} resume retorno e risco juntos. Quanto maior, melhor o equilíbrio entre ganho, drawdown e consistência.`,
     bestResult.best_metrics.max_drawdown_pct <= 3
@@ -167,7 +173,7 @@ export default function OptimizationPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">Optimization Engine</h2>
-          <p className="text-slate-400">FR-09: Ulcer Index + CVaR_95 optimization</p>
+          <p className="text-slate-400">FR-09: Ulcer Index + CVaR_95 optimization based on real EA history</p>
         </div>
         <div className="flex gap-2">
           <Button 
@@ -191,6 +197,20 @@ export default function OptimizationPanel() {
           </Button>
         </div>
       </div>
+
+      <Alert className="bg-slate-900 border-slate-800">
+        <AlertDescription className="text-slate-300">
+          Esta tela agora opera apenas com historico real do EA. Se faltarem baskets suficientes, a otimizacao para e avisa em vez de usar simulacao.
+        </AlertDescription>
+      </Alert>
+
+      {error && (
+        <Alert className="border-red-500/40 bg-red-500/10">
+          <AlertDescription className="text-red-200">
+            {error}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {bestResult && (
         <Card className="bg-slate-900 border-slate-800 border-l-4 border-l-lime-500">

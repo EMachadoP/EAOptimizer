@@ -63,6 +63,10 @@ pip install -r requirements.txt
 cd ..
 ```
 
+Observação importante:
+- o pacote `MetaTrader5` agora faz parte das dependências oficiais
+- a coleta direta do terminal MT5 exige Windows com o MetaTrader 5 aberto e logado
+
 ### 3. Instale as dependências do frontend
 
 ```bash
@@ -74,6 +78,34 @@ cd ..
 ---
 
 ## 🎯 Uso
+
+### Fluxo recomendado com dados 100% reais
+
+1. Abra o MetaTrader 5 no Windows e faça login na conta desejada
+2. Garanta que o símbolo esteja visível no `Market Watch`
+3. Rode a sincronização real:
+
+```bash
+run_real_mt5_sync.bat
+```
+
+Ou, se preferir o comando manual:
+
+```bash
+python sync_mt5_to_cloud.py --api-url https://eaoptimizer.onrender.com --symbol XAUUSDm --days 30 --mt5-path "C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe"
+```
+
+4. Depois abra o frontend e execute:
+- `Regime Detection`
+- `Survival Analysis`
+- `Optimization`
+- `Robustness`
+
+### Regra de integridade dos dados
+
+- a otimização em produção usa apenas `baskets históricos` e `trades reais`
+- se não houver base real suficiente, o sistema para e mostra erro em vez de usar simulação
+- isso garante coerência com backtests e validações do seu EA
 
 ### Iniciar o sistema completo
 
@@ -205,10 +237,11 @@ pytest tests/
 
 ### Validar com dados reais
 
-1. Exporte dados do MT5 Strategy Tester
-2. Importe via painel "Data Import"
-3. Execute análises nos painéis específicos
-4. Compare Basket_MAE calculado vs real (erro esperado < 2%)
+1. Abra o MT5 no Windows
+2. Rode `run_real_mt5_sync.bat` ou `sync_mt5_to_cloud.py`
+3. Confira no dashboard se `Market Data`, `Trades` e `Baskets` foram populados
+4. Execute análises nos painéis específicos
+5. Rode a otimização sabendo que o motor trabalha apenas com base real do EA
 
 ---
 
@@ -223,7 +256,6 @@ pytest tests/
 ### Fase 2: Realismo & Risco (Semanas 3-4) ✅
 - [x] Slippage Modeling
 - [x] Optimization Engine (Ulcer, CVaR)
-- [x] Monte Carlo Simulator
 
 ### Fase 3: Business Intelligence (Semanas 5-6) ✅
 - [x] Regime Detection (Hurst + ADX)
@@ -240,7 +272,7 @@ pytest tests/
 - **Flask**: Web framework
 - **SQLAlchemy**: ORM
 - **Pandas/NumPy/SciPy**: Análise quantitativa
-- **Statsmodels**: Análise estatística
+- **MetaTrader5**: Integração direta com terminal real
 
 ### Frontend
 - **React 18**

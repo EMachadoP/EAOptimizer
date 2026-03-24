@@ -294,8 +294,14 @@ class MT5DataImporter:
         """
         from bs4 import BeautifulSoup
         
-        with open(html_path, 'r', encoding='utf-8') as f:
-            soup = BeautifulSoup(f.read(), 'html.parser')
+        try:
+            with open(html_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+        except UnicodeDecodeError:
+            with open(html_path, 'r', encoding='utf-16') as f:
+                html_content = f.read()
+                
+        soup = BeautifulSoup(html_content, 'html.parser')
         
         # Extrair tabela de trades
         trades_table = soup.find('table', {'class': 'trades'})
